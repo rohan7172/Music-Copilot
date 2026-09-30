@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -8,21 +8,27 @@ import '../models/note.dart';
 
 /// Talks to the Music Copilot backend.
 ///
-/// Defaults to 127.0.0.1, which the iOS Simulator can reach directly since
-/// it shares the host machine's network. A physical device needs the host's
-/// LAN IP instead.
+/// Defaults to 127.0.0.1, which the iOS Simulator and a local web build can
+/// reach directly. A physical device needs the host's LAN IP instead, e.g.
+/// `flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000`.
 class ApiService {
-  ApiService({this.baseUrl = 'http://127.0.0.1:8000'});
+  ApiService({
+    this.baseUrl = const String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'http://127.0.0.1:8000',
+    ),
+  });
 
   final String baseUrl;
 
-  Future<List<Note>> analyzeAudio(File audioFile) async {
+  Future<List<Note>> analyzeAudio(Uint8List wavBytes) async {
     final uri = Uri.parse('$baseUrl/analyze');
     final request = http.MultipartRequest('POST', uri)
       ..files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'file',
-          audioFile.path,
+          wavBytes,
+          filename: 'recording.wav',
           contentType: MediaType('audio', 'wav'),
         ),
       );

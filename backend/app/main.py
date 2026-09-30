@@ -3,10 +3,15 @@ from pathlib import Path
 
 from basic_pitch.inference import predict
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.notes import midi_to_note_name
 
 app = FastAPI(title="Music Copilot Backend")
+
+# Lets the Flutter web build (served from a different port) call the API
+# during local development.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health")

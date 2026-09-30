@@ -57,5 +57,28 @@ flutter run
 
 The app expects the backend at `http://127.0.0.1:8000` by default, which
 works from the iOS Simulator since it shares the host machine's network. A
-physical device needs your machine's LAN IP instead (see
-`app/lib/services/api_service.dart`).
+physical device needs your machine's LAN IP instead:
+
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000
+```
+
+The app also runs in a browser (`flutter run -d chrome`), which is the quickest
+way to iterate on the interface.
+
+## Interface
+
+A single canvas instead of separate record and results screens:
+
+1. **Idle:** an off-white slate with a faint pen line and a breathing record button.
+2. **Recording:** the line grows into a live waveform, left to right.
+3. **Analyzing:** the recording's real envelope (decoded from the WAV) replaces
+   the live one. A reading light sweeps across it, and small hint dots lift off
+   its peaks.
+4. **Settled:** each note arcs up from the point on the waveform where it began
+   and lands in a pitch lane. Height is pitch, the stroke is duration, and
+   opacity is confidence. A thread ties each note back to the slice of
+   waveform it came from.
+
+Tap a note to highlight its slice of audio and see its timing. `replay` re-runs
+the animation.
