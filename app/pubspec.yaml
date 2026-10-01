@@ -42,6 +42,10 @@ dependencies:
   http_parser: ^4.0.2
   # Locating a writable temp file to record into
   path_provider: ^2.1.4
+  # Playing back slices of the recording
+  just_audio: ^0.10.6
+  # Switching iOS/Android audio from recording to playback mode
+  audio_session: ^0.2.4
 
 dev_dependencies:
   flutter_test:

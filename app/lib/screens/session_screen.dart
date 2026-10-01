@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -26,6 +28,7 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen>
     with SingleTickerProviderStateMixin {
   final AudioRecorder _recorder = AudioRecorder();
+  final AudioPlayer _player = AudioPlayer();
   final ApiService _apiService = ApiService();
   final Scene _scene = Scene();
   final ValueNotifier<double> _clock = ValueNotifier(0);
@@ -34,6 +37,12 @@ class _SessionScreenState extends State<SessionScreen>
   late final Ticker _ticker;
   StreamSubscription<Amplitude>? _amplitudeSub;
   String? _errorMessage;
+
+  /// Whether the finished recording is loaded into [_player].
+  bool _playbackReady = false;
+
+  /// Where the current note slice stops, in seconds into the recording.
+  double? _playEnd;
 
   Phase get _phase => _scene.phase;
 
@@ -44,6 +53,7 @@ class _SessionScreenState extends State<SessionScreen>
       if (_phase == Phase.recording) {
         _scene.liveDuration = _recordingTime.elapsedMilliseconds / 1000;
       }
+      _trackPlayback();
       _clock.value = elapsed.inMicroseconds / 1e6;
     })..start();
   }
@@ -53,6 +63,7 @@ class _SessionScreenState extends State<SessionScreen>
     _ticker.dispose();
     _amplitudeSub?.cancel();
     _recorder.dispose();
+    _player.dispose();
     _clock.dispose();
     super.dispose();
   }
@@ -62,6 +73,9 @@ class _SessionScreenState extends State<SessionScreen>
       setState(() => _errorMessage = 'Microphone permission is required to record.');
       return;
     }
+
+    await _stopPlayback();
+    _playbackReady = false;
 
     // On web the recorder ignores the path and returns a blob URL.
     var path = '';
@@ -127,6 +141,7 @@ class _SessionScreenState extends State<SessionScreen>
         ..waveform = waveform
         ..morphStart = _clock.value
         ..hints = waveform.peakTimes();
+      unawaited(_loadPlayback(path));
 
       final notes = await _apiService.analyzeAudio(bytes);
       // Let the listening moment breathe even when the backend is quick.
@@ -157,6 +172,7 @@ class _SessionScreenState extends State<SessionScreen>
 
   void _replay() {
     if (_scene.waveform == null) return;
+    _stopPlayback();
     setState(() {
       _scene
         ..phase = Phase.analyzing
@@ -169,19 +185,89 @@ class _SessionScreenState extends State<SessionScreen>
     });
   }
 
+  Future<void> _loadPlayback(String path) async {
+    try {
+      if (!kIsWeb) {
+        // The recorder leaves the session in record mode; on iOS that routes
+        // playback to the earpiece.
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.music());
+      }
+      await (kIsWeb ? _player.setUrl(path) : _player.setFilePath(path));
+      _playbackReady = true;
+    } catch (e) {
+      // Playback is a nice-to-have; the notes still work without it.
+      debugPrint('Could not load recording for playback: $e');
+    }
+  }
+
+  /// Plays the slice of the recording a note came from, with a little air on
+  /// either side so short notes don't sound clipped.
+  Future<void> _playNote(Note note) async {
+    if (!_playbackReady) return;
+    final duration = _scene.waveform?.duration ?? note.endTime;
+    final start = math.max(0.0, note.startTime - 0.03);
+    final end = math.min(duration, math.max(note.endTime + 0.05, start + 0.25));
+    await _player.pause();
+    await _player.seek(Duration(microseconds: (start * 1e6).round()));
+    _playEnd = end;
+    unawaited(_player.play());
+  }
+
+  Future<void> _stopPlayback() async {
+    _playEnd = null;
+    _scene.playhead = null;
+    if (_player.playing) await _player.pause();
+  }
+
+  /// Called every frame: moves the playhead and stops at the slice's end.
+  void _trackPlayback() {
+    final end = _playEnd;
+    if (end == null) return;
+    final position = _player.position.inMicroseconds / 1e6;
+    final finished = !_player.playing &&
+        _player.processingState == ProcessingState.completed;
+    if (position >= end || finished) {
+      _stopPlayback();
+      return;
+    }
+    if (_player.playing) _scene.playhead = position;
+  }
+
   void _onTap(TapUpDetails details, Size size) {
     if (_phase != Phase.settled || _scene.notes.isEmpty) return;
     final layout = SceneLayout(size, _scene);
-    int? nearest;
+    final tap = details.localPosition;
+    int? hit;
+
+    // A note head in the lane...
     var best = 24.0;
     for (var i = 0; i < _scene.notes.length; i++) {
-      final d = (layout.target(_scene.notes[i]) - details.localPosition).distance;
+      final d = (layout.target(_scene.notes[i]) - tap).distance;
       if (d < best) {
         best = d;
-        nearest = i;
+        hit = i;
       }
     }
-    setState(() => _scene.selected = nearest == _scene.selected ? null : nearest);
+
+    // ...or the stretch of waveform a note was heard in.
+    if (hit == null && (tap.dy - layout.waveY).abs() < layout.waveAmp + 12) {
+      final t = (tap.dx - layout.left) / layout.width * layout.duration;
+      for (var i = 0; i < _scene.notes.length; i++) {
+        final n = _scene.notes[i];
+        if (t >= n.startTime && t <= n.endTime) {
+          hit = i;
+          break;
+        }
+      }
+    }
+
+    setState(() => _scene.selected = hit);
+    if (hit == null) {
+      _stopPlayback();
+    } else {
+      _playNote(_scene.notes[hit]);
+    }
   }
 
   String get _status {

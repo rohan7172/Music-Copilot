@@ -32,6 +32,9 @@ class Scene {
   List<Note> notes = const [];
   double? settleStart;
   int? selected;
+
+  /// Current playback position (seconds) while a note's slice is playing.
+  double? playhead;
 }
 
 // Timings (seconds).
@@ -188,6 +191,18 @@ class ScorePainter extends CustomPainter {
     }
     canvas.drawPath(path, stroke);
 
+    final playhead = scene.playhead;
+    if (playhead != null && scene.phase == Phase.settled) {
+      final x = l.xForTime(playhead);
+      canvas.drawLine(
+        Offset(x, l.waveY - l.waveAmp - 8),
+        Offset(x, l.waveY + l.waveAmp + 8),
+        Paint()
+          ..color = _accent.withValues(alpha: 0.7)
+          ..strokeWidth = 1.2,
+      );
+    }
+
     _paintHints(canvas, l, now, morph);
     if (scene.phase == Phase.settled) _paintNotes(canvas, l, now);
   }
@@ -285,6 +300,20 @@ class ScorePainter extends CustomPainter {
             ..strokeWidth = 3
             ..strokeCap = StrokeCap.round,
         );
+
+        // While its slice plays, the duration stroke fills in ink.
+        final playhead = scene.playhead;
+        if (selected == i && playhead != null && playhead > note.startTime) {
+          final px = math.min(l.xForTime(playhead), l.xForTime(note.endTime));
+          canvas.drawLine(
+            to,
+            Offset(px, to.dy),
+            Paint()
+              ..color = _accent.withValues(alpha: 0.85)
+              ..strokeWidth = 3
+              ..strokeCap = StrokeCap.round,
+          );
+        }
       }
 
       // Comet trail while in flight.

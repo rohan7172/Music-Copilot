@@ -80,5 +80,6 @@ A single canvas instead of separate record and results screens:
    opacity is confidence. A thread ties each note back to the slice of
    waveform it came from.
 
-Tap a note to highlight its slice of audio and see its timing. `replay` re-runs
-the animation.
+Tap a note, or the stretch of waveform it came from, to hear it. A playhead
+sweeps the slice while it plays, and the note's duration stroke fills in.
+Tapping empty space stops playback. `replay` re-runs the animation.
