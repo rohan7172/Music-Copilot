@@ -28,7 +28,8 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen>
     with SingleTickerProviderStateMixin {
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer _player = AudioPlayer();
+  StreamSubscription<bool>? _playingSub;
   final ApiService _apiService = ApiService();
   final Scene _scene = Scene();
   final ValueNotifier<double> _clock = ValueNotifier(0);
@@ -41,8 +42,12 @@ class _SessionScreenState extends State<SessionScreen>
   /// Whether the finished recording is loaded into [_player].
   bool _playbackReady = false;
 
-  /// Where the current note slice stops, in seconds into the recording.
+  /// Where playback stops, in seconds into the recording.
   double? _playEnd;
+
+  /// Whether the whole recording is playing (or paused mid-way), as opposed
+  /// to a single note's slice.
+  bool _playingAll = false;
 
   Phase get _phase => _scene.phase;
 
@@ -56,6 +61,7 @@ class _SessionScreenState extends State<SessionScreen>
       _trackPlayback();
       _clock.value = elapsed.inMicroseconds / 1e6;
     })..start();
+    _watchPlayer();
   }
 
   @override
@@ -63,6 +69,7 @@ class _SessionScreenState extends State<SessionScreen>
     _ticker.dispose();
     _amplitudeSub?.cancel();
     _recorder.dispose();
+    _playingSub?.cancel();
     _player.dispose();
     _clock.dispose();
     super.dispose();
@@ -74,8 +81,7 @@ class _SessionScreenState extends State<SessionScreen>
       return;
     }
 
-    await _stopPlayback();
-    _playbackReady = false;
+    await _resetPlayer();
 
     // On web the recorder ignores the path and returns a blob URL.
     var path = '';
@@ -193,8 +199,10 @@ class _SessionScreenState extends State<SessionScreen>
         final session = await AudioSession.instance;
         await session.configure(const AudioSessionConfiguration.music());
       }
-      await (kIsWeb ? _player.setUrl(path) : _player.setFilePath(path));
-      _playbackReady = true;
+      final player = _player;
+      await (kIsWeb ? player.setUrl(path) : player.setFilePath(path));
+      // Ignore a load that finishes after another recording has started.
+      if (player == _player) _playbackReady = true;
     } catch (e) {
       // Playback is a nice-to-have; the notes still work without it.
       debugPrint('Could not load recording for playback: $e');
@@ -208,16 +216,64 @@ class _SessionScreenState extends State<SessionScreen>
     final duration = _scene.waveform?.duration ?? note.endTime;
     final start = math.max(0.0, note.startTime - 0.03);
     final end = math.min(duration, math.max(note.endTime + 0.05, start + 0.25));
+    _setPlayingAll(false);
     await _player.pause();
     await _player.seek(Duration(microseconds: (start * 1e6).round()));
     _playEnd = end;
     unawaited(_player.play());
   }
 
+  /// Plays the whole recording, or pauses it if it's already playing. Resumes
+  /// from where it was paused; starts over once it has played to the end.
+  Future<void> _togglePlayAll() async {
+    if (!_playbackReady) return;
+    if (_playingAll && _player.playing) {
+      await _player.pause();
+      return;
+    }
+    final duration = _scene.waveform?.duration ?? 0;
+    final resume = _playingAll && (_scene.playhead ?? duration) < duration - 0.05;
+    setState(() => _scene.selected = null);
+    _setPlayingAll(true);
+    if (!resume) await _player.seek(Duration.zero);
+    _playEnd = duration;
+    unawaited(_player.play());
+  }
+
+  void _setPlayingAll(bool value) {
+    if (_playingAll == value) return;
+    if (mounted) {
+      setState(() => _playingAll = _scene.playingAll = value);
+    } else {
+      _playingAll = _scene.playingAll = value;
+    }
+  }
+
   Future<void> _stopPlayback() async {
     _playEnd = null;
     _scene.playhead = null;
+    _setPlayingAll(false);
     if (_player.playing) await _player.pause();
+  }
+
+  /// Swaps in a fresh player for a new recording. Reusing one player kept
+  /// playing the previous recording after the new one was loaded (seen on
+  /// web), so each recording gets its own.
+  Future<void> _resetPlayer() async {
+    await _stopPlayback();
+    _playbackReady = false;
+    final old = _player;
+    _player = AudioPlayer();
+    _watchPlayer();
+    await old.dispose();
+  }
+
+  /// Rebuilds when playback starts or stops, so the play/pause label follows.
+  void _watchPlayer() {
+    _playingSub?.cancel();
+    _playingSub = _player.playingStream.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// Called every frame: moves the playhead and stops at the slice's end.
@@ -225,9 +281,10 @@ class _SessionScreenState extends State<SessionScreen>
     final end = _playEnd;
     if (end == null) return;
     final position = _player.position.inMicroseconds / 1e6;
-    final finished = !_player.playing &&
-        _player.processingState == ProcessingState.completed;
-    if (position >= end || finished) {
+    // just_audio keeps `playing` true after reaching the end, so check the
+    // processing state rather than `playing`.
+    final finished = _player.processingState == ProcessingState.completed;
+    if (position >= end - 0.02 || finished) {
       _stopPlayback();
       return;
     }
@@ -279,6 +336,14 @@ class _SessionScreenState extends State<SessionScreen>
       case Phase.analyzing:
         return 'finding the notes…';
       case Phase.settled:
+        final playhead = _scene.playhead;
+        if (_playingAll && playhead != null) {
+          final sounding = [
+            for (final n in _scene.notes)
+              if (playhead >= n.startTime && playhead <= n.endTime) n.pitch,
+          ];
+          return sounding.isEmpty ? '·' : sounding.join('  ·  ');
+        }
         final selected = _scene.selected;
         if (selected != null) {
           final n = _scene.notes[selected];
@@ -317,19 +382,27 @@ class _SessionScreenState extends State<SessionScreen>
                 left: 24,
                 right: 24,
                 top: idle ? size.height * 0.70 - 96 : size.height * 0.82,
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  child: Text(
-                    _status,
-                    key: ValueKey(_status),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: idle ? 20 : 13,
-                      fontWeight: FontWeight.w300,
-                      letterSpacing: idle ? 0.4 : 0.8,
-                      color: Palette.ink.withValues(alpha: idle ? 0.55 : 0.5),
-                    ),
-                  ),
+                // Rebuilt every frame so it can name the notes sounding
+                // during full playback.
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _clock,
+                  builder: (context, _, _) {
+                    final status = _status;
+                    return AnimatedSwitcher(
+                      duration: Duration(milliseconds: _playingAll ? 120 : 400),
+                      child: Text(
+                        status,
+                        key: ValueKey(status),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: idle ? 20 : 13,
+                          fontWeight: FontWeight.w300,
+                          letterSpacing: idle ? 0.4 : 0.8,
+                          color: Palette.ink.withValues(alpha: idle ? 0.55 : 0.5),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
               if (_errorMessage != null)
@@ -361,10 +434,18 @@ class _SessionScreenState extends State<SessionScreen>
                         _ => _startRecording,
                       },
                     ),
+                    if (_phase == Phase.settled && _scene.waveform != null)
+                      Positioned(
+                        right: size.width / 2 + 52,
+                        child: _QuietButton(
+                          label: _playingAll && _player.playing ? 'pause' : 'play',
+                          onTap: _togglePlayAll,
+                        ),
+                      ),
                     if (_phase == Phase.settled && _scene.notes.isNotEmpty)
                       Positioned(
                         left: size.width / 2 + 52,
-                        child: _QuietButton(label: 'replay', onTap: _replay),
+                        child: _QuietButton(label: 'redraw', onTap: _replay),
                       ),
                   ],
                 ),

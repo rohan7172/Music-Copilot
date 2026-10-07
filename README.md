@@ -84,4 +84,6 @@ A single canvas instead of separate record and results screens:
 
 Tap a note, or the stretch of waveform it came from, to hear it. A playhead
 sweeps the slice while it plays, and the note's duration stroke fills in.
-Tapping empty space stops playback. `replay` re-runs the animation.
+`play` plays the whole recording (tap again to pause), lighting up each note
+as it sounds. Tapping empty space stops playback. `redraw` re-runs the
+animation.

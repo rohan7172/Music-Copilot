@@ -33,8 +33,11 @@ class Scene {
   double? settleStart;
   int? selected;
 
-  /// Current playback position (seconds) while a note's slice is playing.
+  /// Current playback position (seconds) while audio is playing or paused.
   double? playhead;
+
+  /// True while the whole recording is playing; notes light up as they sound.
+  bool playingAll = false;
 }
 
 // Timings (seconds).
@@ -257,6 +260,12 @@ class ScorePainter extends CustomPainter {
       if (p <= 0) continue;
 
       final dim = selected == null || selected == i ? 1.0 : 0.3;
+      final playhead = scene.playhead;
+      final sounding = scene.playingAll &&
+          playhead != null &&
+          playhead >= note.startTime &&
+          playhead <= note.endTime;
+      final lit = selected == i || sounding;
       final conf = (0.4 + 0.6 * (note.confidence / 0.8).clamp(0.0, 1.0)) * dim;
       final from = l.origin(note);
       final to = l.target(note);
@@ -278,7 +287,7 @@ class ScorePainter extends CustomPainter {
           l.waveY,
           l.waveAmp,
         );
-        final tint = selected == i ? 0.3 : 0.05 * dim;
+        final tint = lit ? 0.3 : 0.05 * dim;
         canvas.drawPath(segment, Paint()..color = _accent.withValues(alpha: tint * arrive));
 
         // Thread tying the note back to where it was heard.
@@ -286,7 +295,7 @@ class ScorePainter extends CustomPainter {
           Offset(to.dx, from.dy),
           Offset(to.dx, to.dy + 6),
           Paint()
-            ..color = _ink.withValues(alpha: (selected == i ? 0.25 : 0.06 * dim) * arrive)
+            ..color = _ink.withValues(alpha: (lit ? 0.25 : 0.06 * dim) * arrive)
             ..strokeWidth = 1,
         );
 
@@ -302,8 +311,7 @@ class ScorePainter extends CustomPainter {
         );
 
         // While its slice plays, the duration stroke fills in ink.
-        final playhead = scene.playhead;
-        if (selected == i && playhead != null && playhead > note.startTime) {
+        if (lit && playhead != null && playhead > note.startTime) {
           final px = math.min(l.xForTime(playhead), l.xForTime(note.endTime));
           canvas.drawLine(
             to,
@@ -334,7 +342,7 @@ class ScorePainter extends CustomPainter {
       final radius = (2.2 + 2.6 * e) * (1 + 0.35 * pop);
       final head = along(e);
       canvas.drawCircle(head, radius, Paint()..color = _accent.withValues(alpha: conf));
-      if (selected == i) {
+      if (lit) {
         canvas.drawCircle(
           head,
           radius + 5,
@@ -350,7 +358,7 @@ class ScorePainter extends CustomPainter {
             style: TextStyle(
               fontSize: 11,
               letterSpacing: 0.6,
-              fontWeight: selected == i ? FontWeight.w600 : FontWeight.w400,
+              fontWeight: lit ? FontWeight.w600 : FontWeight.w400,
               color: _ink.withValues(alpha: 0.7 * ((arrive - 0.3) / 0.7) * dim),
             ),
           ),
@@ -358,7 +366,7 @@ class ScorePainter extends CustomPainter {
         )..layout();
         final x = to.dx - painter.width / 2;
         final clear = x > (labelRight[note.midiPitch] ?? double.negativeInfinity) + 4;
-        if (clear || selected == i) {
+        if (clear || lit) {
           painter.paint(canvas, Offset(x, to.dy - 20));
           labelRight[note.midiPitch] = x + painter.width;
         }
