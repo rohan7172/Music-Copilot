@@ -39,6 +39,15 @@ analysis after that is quick. Check it's alive:
 curl http://127.0.0.1:8000/health
 ```
 
+Alongside the notes, `/analyze` returns the detected `key` and `chords`
+(name, Roman numeral, notes, start/end time), worked out from the notes in
+`backend/app/harmony.py`. Run its tests with:
+
+```bash
+./venv/bin/pip install -r requirements-dev.txt
+./venv/bin/pytest
+```
+
 Analyze an audio file:
 
 ```bash

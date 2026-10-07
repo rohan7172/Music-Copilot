@@ -8,6 +8,7 @@ from basic_pitch.inference import Model, predict
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.harmony import analyze_harmony
 from app.notes import midi_to_note_name
 
 _model: Model | None = None
@@ -71,4 +72,4 @@ async def analyze(file: UploadFile) -> dict:
     ]
     notes.sort(key=lambda n: n["start_time"])
 
-    return {"notes": notes}
+    return {"notes": notes, **analyze_harmony(notes)}
