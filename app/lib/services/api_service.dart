@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
-import '../models/note.dart';
+import '../models/harmony.dart';
 
 /// Talks to the Music Copilot backend.
 ///
@@ -21,7 +21,7 @@ class ApiService {
 
   final String baseUrl;
 
-  Future<List<Note>> analyzeAudio(Uint8List wavBytes) async {
+  Future<Analysis> analyzeAudio(Uint8List wavBytes) async {
     final uri = Uri.parse('$baseUrl/analyze');
     final request = http.MultipartRequest('POST', uri)
       ..files.add(
@@ -40,8 +40,6 @@ class ApiService {
       throw Exception('Server returned ${response.statusCode}: ${response.body}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final notesJson = data['notes'] as List<dynamic>;
-    return notesJson.map((n) => Note.fromJson(n as Map<String, dynamic>)).toList();
+    return Analysis.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 }

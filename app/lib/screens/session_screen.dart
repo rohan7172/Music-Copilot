@@ -99,8 +99,11 @@ class _SessionScreenState extends State<SessionScreen>
       ..liveDuration = 0
       ..waveform = null
       ..notes = const []
+      ..chords = const []
+      ..key = null
       ..hints = const []
-      ..selected = null;
+      ..selected = null
+      ..selectedChord = null;
     _recordingTime
       ..reset()
       ..start();
@@ -149,14 +152,17 @@ class _SessionScreenState extends State<SessionScreen>
         ..hints = waveform.peakTimes();
       unawaited(_loadPlayback(path));
 
-      final notes = await _apiService.analyzeAudio(bytes);
+      final analysis = await _apiService.analyzeAudio(bytes);
       // Let the listening moment breathe even when the backend is quick.
       final minListen = analyzeStart + 1.6 - _clock.value;
       if (minListen > 0) {
         await Future<void>.delayed(Duration(milliseconds: (minListen * 1000).round()));
       }
       if (!mounted) return;
-      _settle(notes);
+      _scene
+        ..chords = analysis.chords
+        ..key = analysis.key;
+      _settle(analysis.notes);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -171,6 +177,7 @@ class _SessionScreenState extends State<SessionScreen>
       _scene
         ..notes = notes
         ..selected = null
+        ..selectedChord = null
         ..settleStart = _clock.value
         ..phase = Phase.settled;
     });
@@ -184,7 +191,8 @@ class _SessionScreenState extends State<SessionScreen>
         ..phase = Phase.analyzing
         ..analyzeStart = _clock.value
         ..morphStart = _clock.value - 10
-        ..selected = null;
+        ..selected = null
+        ..selectedChord = null;
     });
     Future<void>.delayed(const Duration(milliseconds: 1400), () {
       if (mounted && _phase == Phase.analyzing) _settle(_scene.notes);
@@ -209,13 +217,13 @@ class _SessionScreenState extends State<SessionScreen>
     }
   }
 
-  /// Plays the slice of the recording a note came from, with a little air on
-  /// either side so short notes don't sound clipped.
-  Future<void> _playNote(Note note) async {
+  /// Plays the stretch of the recording from [from] to [to] seconds, with a
+  /// little air on either side so short notes don't sound clipped.
+  Future<void> _playRange(double from, double to) async {
     if (!_playbackReady) return;
-    final duration = _scene.waveform?.duration ?? note.endTime;
-    final start = math.max(0.0, note.startTime - 0.03);
-    final end = math.min(duration, math.max(note.endTime + 0.05, start + 0.25));
+    final duration = _scene.waveform?.duration ?? to;
+    final start = math.max(0.0, from - 0.03);
+    final end = math.min(duration, math.max(to + 0.05, start + 0.25));
     _setPlayingAll(false);
     await _player.pause();
     await _player.seek(Duration(microseconds: (start * 1e6).round()));
@@ -233,7 +241,11 @@ class _SessionScreenState extends State<SessionScreen>
     }
     final duration = _scene.waveform?.duration ?? 0;
     final resume = _playingAll && (_scene.playhead ?? duration) < duration - 0.05;
-    setState(() => _scene.selected = null);
+    setState(() {
+      _scene
+        ..selected = null
+        ..selectedChord = null;
+    });
     _setPlayingAll(true);
     if (!resume) await _player.seek(Duration.zero);
     _playEnd = duration;
@@ -295,9 +307,24 @@ class _SessionScreenState extends State<SessionScreen>
     if (_phase != Phase.settled || _scene.notes.isEmpty) return;
     final layout = SceneLayout(size, _scene);
     final tap = details.localPosition;
+
+    // A chord band...
+    for (var j = 0; j < _scene.chords.length; j++) {
+      final chord = _scene.chords[j];
+      if (layout.chordRect(chord).inflate(6).contains(tap)) {
+        setState(() {
+          _scene
+            ..selected = null
+            ..selectedChord = j;
+        });
+        _playRange(chord.startTime, chord.endTime);
+        return;
+      }
+    }
+
     int? hit;
 
-    // A note head in the lane...
+    // ...a note head in the lane...
     var best = 24.0;
     for (var i = 0; i < _scene.notes.length; i++) {
       final d = (layout.target(_scene.notes[i]) - tap).distance;
@@ -319,11 +346,16 @@ class _SessionScreenState extends State<SessionScreen>
       }
     }
 
-    setState(() => _scene.selected = hit);
+    setState(() {
+      _scene
+        ..selected = hit
+        ..selectedChord = null;
+    });
     if (hit == null) {
       _stopPlayback();
     } else {
-      _playNote(_scene.notes[hit]);
+      final note = _scene.notes[hit];
+      _playRange(note.startTime, note.endTime);
     }
   }
 
@@ -339,10 +371,19 @@ class _SessionScreenState extends State<SessionScreen>
         final playhead = _scene.playhead;
         if (_playingAll && playhead != null) {
           final sounding = [
+            for (final c in _scene.chords)
+              if (playhead >= c.startTime && playhead <= c.endTime) c.name,
             for (final n in _scene.notes)
               if (playhead >= n.startTime && playhead <= n.endTime) n.pitch,
           ];
           return sounding.isEmpty ? '·' : sounding.join('  ·  ');
+        }
+        final chordIndex = _scene.selectedChord;
+        if (chordIndex != null) {
+          final c = _scene.chords[chordIndex];
+          final key = _scene.key;
+          return '${c.name}  ·  ${c.roman}${key == null ? '' : ' in ${key.name}'}'
+              '  ·  ${c.notes.join(' ')}';
         }
         final selected = _scene.selected;
         if (selected != null) {
@@ -353,7 +394,9 @@ class _SessionScreenState extends State<SessionScreen>
         }
         final count = _scene.notes.length;
         if (count == 0) return 'No notes found. Try a clearer, sustained tone.';
-        return '$count note${count == 1 ? '' : 's'}';
+        final chords = _scene.chords.length;
+        return '$count note${count == 1 ? '' : 's'}'
+            '${chords == 0 ? '' : '  ·  $chords chord${chords == 1 ? '' : 's'}'}';
     }
   }
 

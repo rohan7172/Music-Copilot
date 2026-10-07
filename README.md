@@ -91,6 +91,11 @@ A single canvas instead of separate record and results screens:
    opacity is confidence. A thread ties each note back to the slice of
    waveform it came from.
 
+Once the notes land, the detected chords draw themselves in as a band
+between the notes and the waveform, each with its Roman numeral, and the key
+appears in the corner. Tap a chord to hear it and light up the notes that
+make it.
+
 Tap a note, or the stretch of waveform it came from, to hear it. A playhead
 sweeps the slice while it plays, and the note's duration stroke fills in.
 `play` plays the whole recording (tap again to pause), lighting up each note

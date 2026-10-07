@@ -294,6 +294,7 @@ def _describe_chord(root, quality, intervals, start_time, end_time, k, names) ->
         "quality": quality,
         "roman": _roman(root, quality, intervals, k),
         "notes": tones,
+        "pitch_classes": [(root + i) % 12 for i in intervals],
         "start_time": round(start_time, 3),
         "end_time": round(end_time, 3),
     }

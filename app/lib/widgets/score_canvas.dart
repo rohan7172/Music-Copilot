@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
 import '../audio/waveform.dart';
+import '../models/harmony.dart';
 import '../models/note.dart';
 import '../theme.dart';
 
@@ -33,6 +34,10 @@ class Scene {
   double? settleStart;
   int? selected;
 
+  List<Chord> chords = const [];
+  MusicKey? key;
+  int? selectedChord;
+
   /// Current playback position (seconds) while audio is playing or paused.
   double? playhead;
 
@@ -47,6 +52,15 @@ const _liveWindow = 6.0;
 
 double settleStagger(int noteCount) =>
     math.min(0.11, 1.6 / math.max(1, noteCount));
+
+/// When chords start appearing: once the last note is nearly home.
+double chordsAppear(Scene scene) =>
+    (scene.settleStart ?? 0) +
+    math.max(0, scene.notes.length - 1) * settleStagger(scene.notes.length) +
+    _flightTime * 0.8;
+
+const _chordStagger = 0.08;
+const _chordDraw = 0.5;
 
 /// Where things sit on screen. Shared by the painter and the screen's hit
 /// testing.
@@ -79,6 +93,17 @@ class SceneLayout {
   double get waveAmp => math.min(size.height * 0.11, 72);
   double get laneTop => size.height * 0.14;
   double get laneBottom => size.height * 0.50;
+
+  /// Centre of the chord band, between the note lane and the waveform.
+  double get chordY => (laneBottom + 14 + waveY - waveAmp) / 2;
+  static const chordHeight = 24.0;
+
+  Rect chordRect(Chord c) => Rect.fromLTRB(
+        xForTime(c.startTime) + 1.5,
+        chordY - chordHeight / 2,
+        xForTime(c.endTime) - 1.5,
+        chordY + chordHeight / 2,
+      );
 
   double get duration => scene.waveform?.duration ?? 1;
 
@@ -207,7 +232,113 @@ class ScorePainter extends CustomPainter {
     }
 
     _paintHints(canvas, l, now, morph);
-    if (scene.phase == Phase.settled) _paintNotes(canvas, l, now);
+    if (scene.phase == Phase.settled) {
+      _paintNotes(canvas, l, now);
+      _paintChords(canvas, l, now);
+      _paintKey(canvas, l, now);
+    }
+  }
+
+  /// Chords draw themselves in, left to right, once the notes have landed:
+  /// a band per chord between the notes and the waveform they came from.
+  void _paintChords(Canvas canvas, SceneLayout l, double now) {
+    final start = chordsAppear(scene);
+    final playhead = scene.playhead;
+    for (var j = 0; j < scene.chords.length; j++) {
+      final chord = scene.chords[j];
+      final q = ((now - start - j * _chordStagger) / _chordDraw).clamp(0.0, 1.0);
+      if (q <= 0) continue;
+      final sounding = scene.playingAll &&
+          playhead != null &&
+          playhead >= chord.startTime &&
+          playhead <= chord.endTime;
+      final lit = scene.selectedChord == j || sounding;
+      final dim = scene.selectedChord == null && scene.selected == null || lit ? 1.0 : 0.45;
+
+      final full = l.chordRect(chord);
+      if (full.width <= 2) continue;
+      final rect = Rect.fromLTWH(
+        full.left,
+        full.top,
+        full.width * Curves.easeOutCubic.transform(q),
+        full.height,
+      );
+      final shape = RRect.fromRectAndRadius(rect, const Radius.circular(7));
+      // Paper first, so the note threads pass behind the band.
+      canvas.drawRRect(shape, Paint()..color = Palette.paper.withValues(alpha: q));
+      canvas.drawRRect(
+        shape,
+        Paint()..color = _accent.withValues(alpha: (lit ? 0.2 : 0.07) * q * dim),
+      );
+      canvas.drawRRect(
+        shape,
+        _strokePaint(_accent.withValues(alpha: (lit ? 0.6 : 0.25) * q * dim)),
+      );
+
+      final textAlpha = ((q - 0.4) / 0.6).clamp(0.0, 1.0) * dim;
+      if (textAlpha <= 0) continue;
+      final name = TextSpan(
+        text: chord.name,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+          color: _ink.withValues(alpha: 0.8 * textAlpha),
+        ),
+      );
+      final roman = TextSpan(
+        text: '  ${chord.roman}',
+        style: TextStyle(
+          fontSize: 10,
+          letterSpacing: 0.4,
+          color: _ink.withValues(alpha: 0.45 * textAlpha),
+        ),
+      );
+      // Name and numeral if they fit, else just the name, else nothing.
+      for (final label in [TextSpan(children: [name, roman]), name]) {
+        final painter = TextPainter(text: label, textDirection: TextDirection.ltr)
+          ..layout();
+        if (painter.width <= full.width - 10) {
+          painter.paint(
+            canvas,
+            Offset(full.left + 7, l.chordY - painter.height / 2),
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  /// The detected key, quietly in the corner once the chords arrive.
+  void _paintKey(Canvas canvas, SceneLayout l, double now) {
+    final key = scene.key;
+    if (key == null) return;
+    final a = ((now - chordsAppear(scene)) / 0.6).clamp(0.0, 1.0);
+    if (a <= 0) return;
+    final painter = TextPainter(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: 'KEY  ',
+            style: TextStyle(
+              fontSize: 10,
+              letterSpacing: 1.6,
+              color: _ink.withValues(alpha: 0.35 * a),
+            ),
+          ),
+          TextSpan(
+            text: key.name,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: _ink.withValues(alpha: 0.75 * a),
+            ),
+          ),
+        ],
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, Offset(l.left, l.size.height * 0.06));
   }
 
   /// Small dots lifting off the waveform's peaks: the app "listening closely".
@@ -236,6 +367,8 @@ class ScorePainter extends CustomPainter {
     final start = scene.settleStart ?? now;
     final stagger = settleStagger(notes.length);
     final selected = scene.selected;
+    final chordIndex = scene.selectedChord;
+    final chord = chordIndex == null ? null : scene.chords[chordIndex];
 
     // Lane hairlines appear as each pitch first lands.
     final landed = <int, double>{};
@@ -259,13 +392,15 @@ class ScorePainter extends CustomPainter {
       final p = ((now - start - i * stagger) / _flightTime).clamp(0.0, 1.0);
       if (p <= 0) continue;
 
-      final dim = selected == null || selected == i ? 1.0 : 0.3;
+      final inChord = chord != null && chord.contains(note);
+      final focused = selected == null && chord == null;
+      final dim = focused || selected == i || inChord ? 1.0 : 0.3;
       final playhead = scene.playhead;
       final sounding = scene.playingAll &&
           playhead != null &&
           playhead >= note.startTime &&
           playhead <= note.endTime;
-      final lit = selected == i || sounding;
+      final lit = selected == i || sounding || inChord;
       final conf = (0.4 + 0.6 * (note.confidence / 0.8).clamp(0.0, 1.0)) * dim;
       final from = l.origin(note);
       final to = l.target(note);

@@ -52,6 +52,7 @@ def test_sevenths_and_spelling_in_a_flat_key():
     assert result["key"]["name"] == "F major"
     assert summary(result) == [("Gm7", "ii7"), ("C7", "V7"), ("F", "I")]
     assert result["chords"][0]["notes"] == ["G", "Bb", "D", "F"]
+    assert result["chords"][0]["pitch_classes"] == [7, 10, 2, 5]
 
 
 def test_single_note_melody_is_not_called_a_chord():
