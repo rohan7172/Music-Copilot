@@ -1,4 +1,4 @@
-from app.harmony import analyze_harmony
+from app.harmony import analyze_harmony, without_overtones
 
 C, D, E, F, G, A, B = 60, 62, 64, 65, 67, 69, 71
 
@@ -94,3 +94,11 @@ def test_overtone_ghosts_are_ignored():
     # is Basic Pitch hearing the overtone. C-E-G plus a ghost D would be Cadd9.
     notes = block([C, E, G], 0) + [note(G + 19, 0.01, 0.4, confidence=0.3)]
     assert summary(analyze_harmony(notes)) == [("C", "I")]
+
+
+def test_quiet_short_overtone_is_dropped_but_a_played_note_is_kept():
+    bass = note(C - 12, 0, 1.0, confidence=0.7)
+    ghost = note(C - 12 + 19, 0.01, 0.3, confidence=0.3)  # G4: quiet, fades first
+    played = note(C - 12 + 19, 0.02, 1.0, confidence=0.6)  # G4 in an open voicing
+    assert without_overtones([bass, ghost]) == [bass]
+    assert without_overtones([bass, played]) == [bass, played]

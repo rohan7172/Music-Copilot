@@ -50,7 +50,7 @@ _TEMPLATES = [
 
 def analyze_harmony(notes: list[dict]) -> dict:
     """Returns {"key": ..., "chords": [...]} for notes as returned by /analyze."""
-    notes = _without_overtones(notes)
+    notes = without_overtones(notes)
     if not notes:
         return {"key": None, "chords": []}
     basses = _bass_spans(notes)
@@ -61,18 +61,21 @@ def analyze_harmony(notes: list[dict]) -> dict:
     }
 
 
-def _without_overtones(notes: list[dict]) -> list[dict]:
+def without_overtones(notes: list[dict]) -> list[dict]:
     """Drops notes that are really the overtone of a louder note.
 
     Basic Pitch sometimes reports a note's third harmonic (an octave and a
-    fifth up) as a quieter note of its own, starting at the same moment. Left
-    in, it adds a pitch class that isn't really there.
+    fifth up) as a note of its own: starting at the same moment, at well
+    under the real note's loudness, and fading first. Left in, it shows as a
+    stray note and adds a pitch class that isn't really there. A genuinely
+    played note at that interval is kept, since it's about as loud and lasts.
     """
     def is_overtone(n):
         return any(
             m["midi_pitch"] == n["midi_pitch"] - 19
             and abs(m["start_time"] - n["start_time"]) <= 0.08
-            and m["confidence"] > n["confidence"]
+            and n["confidence"] < 0.65 * m["confidence"]
+            and n["end_time"] < m["end_time"]
             for m in notes
         )
 

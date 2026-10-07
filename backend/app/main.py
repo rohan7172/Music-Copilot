@@ -8,7 +8,7 @@ from basic_pitch.inference import Model, predict
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.harmony import analyze_harmony
+from app.harmony import analyze_harmony, without_overtones
 from app.notes import midi_to_note_name
 
 _model: Model | None = None
@@ -71,5 +71,6 @@ async def analyze(file: UploadFile) -> dict:
         for start_time, end_time, pitch, amplitude, _pitch_bends in note_events
     ]
     notes.sort(key=lambda n: n["start_time"])
+    notes = without_overtones(notes)
 
     return {"notes": notes, **analyze_harmony(notes)}
