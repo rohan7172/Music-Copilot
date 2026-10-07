@@ -31,7 +31,9 @@ python3.11 -m venv venv
 ./venv/bin/uvicorn app.main:app --reload
 ```
 
-Server runs at `http://127.0.0.1:8000`. Check it's alive:
+Server runs at `http://127.0.0.1:8000`. It loads and warms up the Basic Pitch
+model before accepting requests, so startup takes a few seconds and every
+analysis after that is quick. Check it's alive:
 
 ```bash
 curl http://127.0.0.1:8000/health

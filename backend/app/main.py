@@ -1,13 +1,41 @@
 import tempfile
+import wave
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from basic_pitch.inference import predict
+from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch.inference import Model, predict
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.notes import midi_to_note_name
 
-app = FastAPI(title="Music Copilot Backend")
+_model: Model | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Load Basic Pitch once, before the server accepts requests.
+
+    Without this, every request rebuilds the model and the first one also pays
+    TensorFlow's one-time setup, so the first analysis is several seconds slow.
+    """
+    global _model
+    _model = Model(ICASSP_2022_MODEL_PATH)
+
+    # Warm-up: run one second of silence through it so that setup happens now.
+    with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+        with wave.open(tmp.name, "wb") as silence:
+            silence.setnchannels(1)
+            silence.setsampwidth(2)
+            silence.setframerate(22050)
+            silence.writeframes(b"\x00\x00" * 22050)
+        predict(tmp.name, _model)
+
+    yield
+
+
+app = FastAPI(title="Music Copilot Backend", lifespan=lifespan)
 
 # Lets the Flutter web build (served from a different port) call the API
 # during local development.
@@ -29,7 +57,7 @@ async def analyze(file: UploadFile) -> dict:
         tmp.write(await file.read())
         tmp.flush()
 
-        _, _, note_events = predict(tmp.name)
+        _, _, note_events = predict(tmp.name, _model)
 
     notes = [
         {
