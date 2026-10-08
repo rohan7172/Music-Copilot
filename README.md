@@ -11,6 +11,23 @@ See [`docs/concepts.md`](docs/concepts.md) for a learning checklist covering
 everything used in this codebase, from Dart/Flutter basics to the ML
 concepts behind Basic Pitch.
 
+## Quick start
+
+With Python 3.11 and Flutter installed, from the repo root:
+
+```bash
+./dev.sh
+```
+
+It sets up or updates the backend's Python packages when needed, starts the
+backend, serves the app at `http://localhost:8080` and opens it in your
+browser. `r` / `R` in that terminal reload the app; `Ctrl+C` stops everything.
+Backend output goes to `.dev/backend.log`. Leftover servers from an earlier
+run are stopped automatically; anything else using ports 8000 or 8080 is
+reported, not touched.
+
+The manual steps it automates are below.
+
 ## Structure
 
 - `backend/` — Python FastAPI server that runs Basic Pitch on an uploaded
