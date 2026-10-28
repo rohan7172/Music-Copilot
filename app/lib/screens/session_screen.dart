@@ -611,6 +611,15 @@ class _SessionScreenState extends State<SessionScreen>
                   ],
                 ),
               ),
+              // Always reachable except mid-recording/analyzing, so starting
+              // a new recording never blocks picking a file instead (and
+              // vice versa) — it doesn't depend on which phase you're in.
+              if (_phase == Phase.idle || _phase == Phase.settled)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: _QuietButton(label: 'upload', onTap: _pickAndAnalyzeFile),
+                ),
               if (_errorMessage != null)
                 Positioned(
                   left: 24,
@@ -640,11 +649,6 @@ class _SessionScreenState extends State<SessionScreen>
                         _ => _startRecording,
                       },
                     ),
-                    if (_phase == Phase.idle)
-                      Positioned(
-                        right: size.width / 2 + 52,
-                        child: _QuietButton(label: 'upload', onTap: _pickAndAnalyzeFile),
-                      ),
                     if (_phase == Phase.settled && _scene.waveform != null)
                       Positioned(
                         right: size.width / 2 + 52,
