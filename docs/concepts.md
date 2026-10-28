@@ -31,6 +31,24 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   canvas with primitives (paths, arcs, text) instead of composing widgets;
   how the waveform, note arcs, and chord bands are actually rendered
 
+## Picking an existing file (`audio/pick_audio_file.dart`)
+
+- `file_picker` — the system file-picker UI, restricted here to
+  `wav`/`mp3`/`m4a`; gives a real file path on native platforms, but only
+  raw bytes on web (browsers don't expose a filesystem path)
+- Data URIs (`Uri.dataFromBytes`) — a way to embed a file's bytes directly
+  inside a URL (`data:audio/mpeg;base64,...`); used so the web build can
+  hand `just_audio` something to play when there's no file path or blob
+  URL available, unlike a live recording's blob URL
+- `ffmpeg` as a backend system dependency — `librosa` (which Basic Pitch
+  uses to load audio) decodes WAV/FLAC/OGG natively via `soundfile`, but
+  falls back to `ffmpeg` for compressed formats like MP3/M4A; nothing to
+  do with Python packages, it has to be installed separately on the host
+- A synthetic "waveform" from note data (`Waveform.fromNoteActivity`) —
+  when the real audio can't be decoded into samples client-side, the
+  canvas shows note density/confidence over time instead; not the actual
+  sound, but a visualization that still reflects what was heard
+
 ## Audio recording and playback on-device
 
 - Microphone permissions (iOS `Info.plist` entries, runtime permission

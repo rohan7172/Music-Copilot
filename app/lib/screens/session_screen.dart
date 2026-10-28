@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import '../audio/pick_audio_file.dart';
 import '../audio/read_recording.dart';
 import '../audio/waveform.dart';
 import '../models/harmony.dart';
@@ -175,6 +176,83 @@ class _SessionScreenState extends State<SessionScreen>
       setState(() {
         _scene.phase = _scene.waveform == null ? Phase.idle : Phase.settled;
         _errorMessage = 'Could not analyze recording: $e';
+      });
+    }
+  }
+
+  Future<void> _pickAndAnalyzeFile() async {
+    final PickedAudio picked;
+    try {
+      final result = await pickAudioFile();
+      if (result == null) return;
+      picked = result;
+    } catch (e) {
+      setState(() => _errorMessage = 'Could not open that file: $e');
+      return;
+    }
+
+    await _resetPlayer();
+    _scene
+      ..live.clear()
+      ..liveDuration = 0
+      ..waveform = null
+      ..notes = const []
+      ..chords = const []
+      ..key = null
+      ..hints = const []
+      ..selected = null
+      ..selectedChord = null;
+    _explanation = null;
+
+    final analyzeStart = _clock.value;
+    setState(() {
+      _scene
+        ..phase = Phase.analyzing
+        ..analyzeStart = analyzeStart;
+      _errorMessage = null;
+    });
+
+    try {
+      // A real envelope if this is WAV; otherwise left null until the notes
+      // come back, so the live-amplitude fallback below (only meaningful for
+      // recordings) isn't used.
+      final waveform = Waveform.fromWavBytes(picked.bytes);
+      if (waveform != null) {
+        _scene
+          ..waveform = waveform
+          ..morphStart = _clock.value
+          ..hints = waveform.peakTimes();
+      }
+      unawaited(_loadPlayback(picked.playbackSource));
+
+      final analysis = await _apiService.analyzeAudio(picked.bytes, filename: picked.filename);
+      final minListen = analyzeStart + 1.6 - _clock.value;
+      if (minListen > 0) {
+        await Future<void>.delayed(Duration(milliseconds: (minListen * 1000).round()));
+      }
+      if (!mounted) return;
+
+      if (waveform == null) {
+        final notes = analysis.notes;
+        final duration = notes.isEmpty
+            ? 1.0
+            : notes.map((n) => n.endTime).reduce(math.max) + 0.2;
+        _scene
+          ..waveform = Waveform.fromNoteActivity(notes, duration)
+          ..morphStart = _clock.value
+          ..hints = const [];
+      }
+
+      _scene
+        ..chords = analysis.chords
+        ..key = analysis.key;
+      _explanation = analysis.explanation;
+      _settle(analysis.notes);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _scene.phase = _scene.waveform == null ? Phase.idle : Phase.settled;
+        _errorMessage = 'Could not analyze file: $e';
       });
     }
   }
@@ -486,6 +564,11 @@ class _SessionScreenState extends State<SessionScreen>
                         _ => _startRecording,
                       },
                     ),
+                    if (_phase == Phase.idle)
+                      Positioned(
+                        right: size.width / 2 + 52,
+                        child: _QuietButton(label: 'upload', onTap: _pickAndAnalyzeFile),
+                      ),
                     if (_phase == Phase.settled && _scene.waveform != null)
                       Positioned(
                         right: size.width / 2 + 52,

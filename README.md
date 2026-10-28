@@ -39,7 +39,8 @@ The manual steps it automates are below.
 
 Requires Python 3.11 (Basic Pitch's ML dependencies don't yet support the
 very latest Python releases, so a pinned 3.11 venv is used instead of the
-system Python).
+system Python), and `ffmpeg` on your `PATH` (`brew install ffmpeg` on a Mac)
+for decoding uploaded MP3/M4A files — WAV/FLAC/OGG work without it.
 
 ```bash
 cd backend
@@ -118,3 +119,9 @@ sweeps the slice while it plays, and the note's duration stroke fills in.
 `play` plays the whole recording (tap again to pause), lighting up each note
 as it sounds. Tapping empty space stops playback. `redraw` re-runs the
 animation.
+
+`upload`, next to the record button while idle, analyzes an existing WAV,
+MP3, or M4A file instead of a live recording. A WAV's waveform is decoded
+exactly like a recording's; MP3/M4A can't be decoded into an exact envelope
+client-side, so their "waveform" is a stand-in built from the detected
+notes' timing and confidence once analysis comes back.

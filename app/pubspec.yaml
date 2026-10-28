@@ -46,6 +46,8 @@ dependencies:
   just_audio: ^0.10.6
   # Switching iOS/Android audio from recording to playback mode
   audio_session: ^0.2.4
+  # Picking an existing audio file to analyze
+  file_picker: ^10.1.2
 
 dev_dependencies:
   flutter_test:
