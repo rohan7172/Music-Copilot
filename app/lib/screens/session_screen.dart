@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:just_audio/just_audio.dart';
@@ -388,6 +389,19 @@ class _SessionScreenState extends State<SessionScreen>
     if (_player.playing) _scene.playhead = position;
   }
 
+  /// Selects chord [index], playing its slice of the recording. Shared by a
+  /// canvas tap on the chord band and a tap on its mention in the overview
+  /// sentence, so both entry points do exactly the same thing.
+  void _selectChord(int index) {
+    setState(() {
+      _scene
+        ..selected = null
+        ..selectedChord = index;
+    });
+    final chord = _scene.chords[index];
+    _playRange(chord.startTime, chord.endTime);
+  }
+
   void _onTap(TapUpDetails details, Size size) {
     if (_phase != Phase.settled || _scene.notes.isEmpty) return;
     final layout = SceneLayout(size, _scene);
@@ -395,14 +409,8 @@ class _SessionScreenState extends State<SessionScreen>
 
     // A chord band...
     for (var j = 0; j < _scene.chords.length; j++) {
-      final chord = _scene.chords[j];
-      if (layout.chordRect(chord).inflate(6).contains(tap)) {
-        setState(() {
-          _scene
-            ..selected = null
-            ..selectedChord = j;
-        });
-        _playRange(chord.startTime, chord.endTime);
+      if (layout.chordRect(_scene.chords[j]).inflate(6).contains(tap)) {
+        _selectChord(j);
         return;
       }
     }
@@ -444,47 +452,97 @@ class _SessionScreenState extends State<SessionScreen>
     }
   }
 
-  String get _status {
-    switch (_phase) {
-      case Phase.idle:
-        return 'Play something';
-      case Phase.recording:
-        return 'listening…';
-      case Phase.analyzing:
-        return 'finding the notes…';
-      case Phase.settled:
-        final playhead = _scene.playhead;
-        if (_playingAll && playhead != null) {
-          final sounding = [
-            for (final c in _scene.chords)
-              if (playhead >= c.startTime && playhead <= c.endTime) c.name,
-            for (final n in _scene.notes)
-              if (playhead >= n.startTime && playhead <= n.endTime) n.pitch,
-          ];
-          return sounding.isEmpty ? '·' : sounding.join('  ·  ');
-        }
-        final chordIndex = _scene.selectedChord;
-        if (chordIndex != null) {
-          final explained = _explanation?.chords;
-          if (explained != null && chordIndex < explained.length) {
-            return explained[chordIndex].text;
-          }
-          final c = _scene.chords[chordIndex];
-          final key = _scene.key;
-          return '${c.name}  ·  ${c.roman}${key == null ? '' : ' in ${key.name}'}'
-              '  ·  ${c.notes.join(' ')}';
-        }
-        final selected = _scene.selected;
-        if (selected != null) {
-          final n = _scene.notes[selected];
-          return '${n.pitch}  ·  ${n.startTime.toStringAsFixed(2)}–'
-              '${n.endTime.toStringAsFixed(2)} s  ·  '
-              '${(n.confidence * 100).round()}%';
-        }
-        final count = _scene.notes.length;
-        if (count == 0) return 'No notes found. Try a clearer, sustained tone.';
-        return _explanation?.summary ?? '$count note${count == 1 ? '' : 's'}';
+  /// The idle/recording/analyzing message; null once settled, where the
+  /// overview (built from the explanation) takes over instead.
+  String? get _phaseMessage => switch (_phase) {
+    Phase.idle => 'Play something',
+    Phase.recording => 'listening…',
+    Phase.analyzing => 'finding the notes…',
+    Phase.settled => null,
+  };
+
+  /// What's currently selected or playing, shown above the overview. Null
+  /// when nothing is: the overview is all there is to say.
+  String? get _detailText {
+    final playhead = _scene.playhead;
+    if (_playingAll && playhead != null) {
+      final sounding = [
+        for (final c in _scene.chords)
+          if (playhead >= c.startTime && playhead <= c.endTime) c.name,
+        for (final n in _scene.notes)
+          if (playhead >= n.startTime && playhead <= n.endTime) n.pitch,
+      ];
+      return sounding.isEmpty ? '·' : sounding.join('  ·  ');
     }
+    final chordIndex = _scene.selectedChord;
+    if (chordIndex != null) {
+      final explained = _explanation?.chords;
+      if (explained != null && chordIndex < explained.length) {
+        return explained[chordIndex].text;
+      }
+      final c = _scene.chords[chordIndex];
+      final key = _scene.key;
+      return '${c.name}  ·  ${c.roman}${key == null ? '' : ' in ${key.name}'}'
+          '  ·  ${c.notes.join(' ')}';
+    }
+    final selected = _scene.selected;
+    if (selected != null) {
+      final n = _scene.notes[selected];
+      return '${n.pitch}  ·  ${n.startTime.toStringAsFixed(2)}–'
+          '${n.endTime.toStringAsFixed(2)} s  ·  '
+          '${(n.confidence * 100).round()}%';
+    }
+    return null;
+  }
+
+  TextStyle _statusStyle(bool idle) => TextStyle(
+    fontSize: idle ? 20 : 13,
+    fontWeight: FontWeight.w300,
+    letterSpacing: idle ? 0.4 : 0.8,
+    color: Palette.ink.withValues(alpha: idle ? 0.55 : 0.5),
+  );
+
+  /// The overview: the idle/recording/analyzing message, or, once settled,
+  /// the explanation summary with each chord mention tappable (same action
+  /// as tapping that chord's band on the canvas). Always showing something
+  /// once settled, unlike the detail line above it.
+  Widget _buildOverview(bool idle) {
+    final style = _statusStyle(idle);
+    final phaseMessage = _phaseMessage;
+    if (phaseMessage != null) {
+      return Text(phaseMessage, key: ValueKey(phaseMessage), textAlign: TextAlign.center, style: style);
+    }
+    final count = _scene.notes.length;
+    if (count == 0) {
+      const message = 'No notes found. Try a clearer, sustained tone.';
+      return Text(message, key: const ValueKey(message), textAlign: TextAlign.center, style: style);
+    }
+    final segments = _explanation?.summary;
+    if (segments == null) {
+      final message = '$count note${count == 1 ? '' : 's'}';
+      return Text(message, key: ValueKey(message), textAlign: TextAlign.center, style: style);
+    }
+    final linkStyle = style.copyWith(
+      decoration: TextDecoration.underline,
+      color: Palette.ink.withValues(alpha: 0.8),
+    );
+    return RichText(
+      key: ValueKey(segments),
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        style: style,
+        children: [
+          for (final segment in segments)
+            segment.chordIndex == null
+                ? TextSpan(text: segment.text)
+                : TextSpan(
+                    text: segment.text,
+                    style: linkStyle,
+                    recognizer: TapGestureRecognizer()..onTap = () => _selectChord(segment.chordIndex!),
+                  ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -504,35 +562,53 @@ class _SessionScreenState extends State<SessionScreen>
                   child: CustomPaint(painter: ScorePainter(_scene, _clock)),
                 ),
               ),
-              // Status line: sits above the slate when idle, below the
-              // waveform once there's something to look at.
+              // Status area: sits above the slate when idle, below the
+              // waveform once there's something to look at. Once settled,
+              // it's two lines: a detail line above (what's selected or
+              // playing, if anything) over the overview, which never goes
+              // away once there's an analysis to show.
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 700),
                 curve: Curves.easeInOutCubic,
                 left: 24,
                 right: 24,
-                top: idle ? size.height * 0.70 - 96 : size.height * 0.82,
-                // Rebuilt every frame so it can name the notes sounding
-                // during full playback.
-                child: ValueListenableBuilder<double>(
-                  valueListenable: _clock,
-                  builder: (context, _, _) {
-                    final status = _status;
-                    return AnimatedSwitcher(
-                      duration: Duration(milliseconds: _playingAll ? 120 : 400),
-                      child: Text(
-                        status,
-                        key: ValueKey(status),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: idle ? 20 : 13,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: idle ? 0.4 : 0.8,
-                          color: Palette.ink.withValues(alpha: idle ? 0.55 : 0.5),
+                top: switch (_phase) {
+                  Phase.idle => size.height * 0.70 - 96,
+                  Phase.settled => size.height * 0.79,
+                  _ => size.height * 0.82,
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_phase == Phase.settled)
+                      SizedBox(
+                        height: 22,
+                        // Rebuilt every frame so it can name the notes
+                        // sounding during full playback.
+                        child: ValueListenableBuilder<double>(
+                          valueListenable: _clock,
+                          builder: (context, _, _) {
+                            final detail = _detailText;
+                            return AnimatedSwitcher(
+                              duration: Duration(milliseconds: _playingAll ? 120 : 400),
+                              child: detail == null
+                                  ? const SizedBox.shrink(key: ValueKey('no-detail'))
+                                  : Text(
+                                      detail,
+                                      key: ValueKey(detail),
+                                      textAlign: TextAlign.center,
+                                      style: _statusStyle(false),
+                                    ),
+                            );
+                          },
                         ),
                       ),
-                    );
-                  },
+                    if (_phase == Phase.settled) const SizedBox(height: 8),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 400),
+                      child: _buildOverview(idle),
+                    ),
+                  ],
                 ),
               ),
               if (_errorMessage != null)

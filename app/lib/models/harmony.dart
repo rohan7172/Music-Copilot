@@ -71,6 +71,24 @@ class ChordExplanation {
   final String text;
 }
 
+/// One piece of the overall summary sentence. A segment that names a
+/// specific chord carries [chordIndex] (that chord's position in
+/// [Analysis.chords]), making it a candidate for a tappable reference; plain
+/// prose segments carry null.
+class SummarySegment {
+  SummarySegment({required this.text, this.chordIndex});
+
+  factory SummarySegment.fromJson(Map<String, dynamic> json) {
+    return SummarySegment(
+      text: json['text'] as String,
+      chordIndex: json['chord_index'] as int?,
+    );
+  }
+
+  final String text;
+  final int? chordIndex;
+}
+
 /// A plain-language summary of the key and progression, plus a matching
 /// explanation for each chord in [Analysis.chords].
 class Explanation {
@@ -78,7 +96,10 @@ class Explanation {
 
   factory Explanation.fromJson(Map<String, dynamic> json) {
     return Explanation(
-      summary: json['summary'] as String,
+      summary: [
+        for (final s in json['summary'] as List<dynamic>)
+          SummarySegment.fromJson(s as Map<String, dynamic>),
+      ],
       chords: [
         for (final c in json['chords'] as List<dynamic>)
           ChordExplanation.fromJson(c as Map<String, dynamic>),
@@ -86,7 +107,7 @@ class Explanation {
     );
   }
 
-  final String summary;
+  final List<SummarySegment> summary;
   final List<ChordExplanation> chords;
 }
 

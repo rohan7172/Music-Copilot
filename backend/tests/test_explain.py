@@ -5,9 +5,20 @@ def chord(name, roman):
     return {"name": name, "roman": roman}
 
 
+def plain_text(summary):
+    return "".join(seg["text"] for seg in summary)
+
+
+def linked(summary):
+    """[(text, chord_index), ...] for segments that link back to a chord."""
+    return [(seg["text"], seg["chord_index"]) for seg in summary if "chord_index" in seg]
+
+
 def test_no_key_or_chords_gives_a_generic_message():
     result = explain_progression(None, [])
-    assert result["summary"] == "Not enough was played to make out a clear key or chord progression."
+    assert result["summary"] == [
+        {"text": "Not enough was played to make out a clear key or chord progression."}
+    ]
     assert result["chords"] == []
 
 
@@ -30,40 +41,61 @@ def test_unrecognised_roman_numeral_falls_back_to_just_the_chord_name():
 def test_recognises_a_ii_v_i_progression():
     key = {"name": "C major"}
     chords = [chord("Dm7", "ii7"), chord("G7", "V7"), chord("Cmaj7", "I7")]
-    result = explain_progression(key, chords)
-    assert result["summary"] == (
+    result = explain_progression(key, chords)["summary"]
+    assert plain_text(result) == (
         "This is in C major, moving through a ii–V–I progression — the classic "
         "jazz cadence, building tension through ii and V before resolving home."
     )
+    # Each mention of ii/V/I points back at the chord it names, including the
+    # repeated mid-sentence mentions.
+    assert linked(result) == [("ii", 0), ("V", 1), ("I", 2), ("ii", 0), ("V", 1)]
+
+
+def test_segment_chord_indices_map_back_to_the_original_chord_list():
+    # An unrecognised chord sandwiched in the middle must not shift the
+    # indices the ii-V-I pattern still recognises around it.
+    key = {"name": "C major"}
+    chords = [
+        chord("Dm7", "ii7"),
+        chord("Abo7", "Ger6"),
+        chord("G7", "V7"),
+        chord("Cmaj7", "I7"),
+    ]
+    result = explain_progression(key, chords)["summary"]
+    assert linked(result) == [("ii", 0), ("V", 2), ("I", 3), ("ii", 0), ("V", 2)]
 
 
 def test_recognises_an_authentic_cadence_when_no_full_pattern_matches():
     key = {"name": "G major"}
     chords = [chord("Em", "vi"), chord("D", "V"), chord("G", "I")]
-    result = explain_progression(key, chords)
-    assert result["summary"] == (
+    result = explain_progression(key, chords)["summary"]
+    assert plain_text(result) == (
         "This is in G major, ending with an authentic cadence (V–I), the strongest way to resolve."
     )
+    assert linked(result) == [("V", 1), ("I", 2)]
 
 
 def test_recognises_a_half_cadence():
     key = {"name": "C major"}
     chords = [chord("C", "I"), chord("G", "V")]
-    result = explain_progression(key, chords)
-    assert result["summary"] == (
-        "This is in C major, ending with a half cadence — left hanging on the dominant rather than resolved."
+    result = explain_progression(key, chords)["summary"]
+    assert plain_text(result) == (
+        "This is in C major, ending with a half cadence on the V chord — "
+        "left hanging on the dominant rather than resolved."
     )
+    assert linked(result) == [("V", 1)]
 
 
 def test_falls_back_to_a_generic_summary_with_no_recognised_pattern():
     key = {"name": "C major"}
     chords = [chord("C", "I"), chord("Dm", "ii")]
-    result = explain_progression(key, chords)
-    assert result["summary"] == "This is in C major, moving through 2 chords."
+    result = explain_progression(key, chords)["summary"]
+    assert plain_text(result) == "This is in C major, moving through 2 chords."
+    assert linked(result) == []
 
 
 def test_falls_back_to_singular_chord_wording_for_one_chord():
     key = {"name": "C major"}
     chords = [chord("C", "I")]
-    result = explain_progression(key, chords)
-    assert result["summary"] == "This is in C major, moving through 1 chord."
+    result = explain_progression(key, chords)["summary"]
+    assert plain_text(result) == "This is in C major, moving through 1 chord."
