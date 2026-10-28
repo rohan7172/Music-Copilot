@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
 import '../audio/waveform.dart';
+import '../harmonic_color.dart';
 import '../models/harmony.dart';
 import '../models/note.dart';
 import '../theme.dart';
@@ -264,15 +265,16 @@ class ScorePainter extends CustomPainter {
         full.height,
       );
       final shape = RRect.fromRectAndRadius(rect, const Radius.circular(7));
+      final color = HarmonicColor.forRoman(chord.roman);
       // Paper first, so the note threads pass behind the band.
       canvas.drawRRect(shape, Paint()..color = Palette.paper.withValues(alpha: q));
       canvas.drawRRect(
         shape,
-        Paint()..color = _accent.withValues(alpha: (lit ? 0.2 : 0.07) * q * dim),
+        Paint()..color = color.withValues(alpha: (lit ? 0.2 : 0.07) * q * dim),
       );
       canvas.drawRRect(
         shape,
-        _strokePaint(_accent.withValues(alpha: (lit ? 0.6 : 0.25) * q * dim)),
+        _strokePaint(color.withValues(alpha: (lit ? 0.6 : 0.25) * q * dim)),
       );
 
       final textAlpha = ((q - 0.4) / 0.6).clamp(0.0, 1.0) * dim;
@@ -395,6 +397,17 @@ class ScorePainter extends CustomPainter {
       final inChord = chord != null && chord.contains(note);
       final focused = selected == null && chord == null;
       final dim = focused || selected == i || inChord ? 1.0 : 0.3;
+
+      // The color of whichever chord this note sounds within, regardless of
+      // selection; a note outside any detected chord gets a neutral color.
+      Chord? owner;
+      for (final c in scene.chords) {
+        if (c.contains(note)) {
+          owner = c;
+          break;
+        }
+      }
+      final noteColor = owner == null ? HarmonicColor.neutral : HarmonicColor.forRoman(owner.roman);
       final playhead = scene.playhead;
       final sounding = scene.playingAll &&
           playhead != null &&
@@ -423,7 +436,7 @@ class ScorePainter extends CustomPainter {
           l.waveAmp,
         );
         final tint = lit ? 0.3 : 0.05 * dim;
-        canvas.drawPath(segment, Paint()..color = _accent.withValues(alpha: tint * arrive));
+        canvas.drawPath(segment, Paint()..color = noteColor.withValues(alpha: tint * arrive));
 
         // Thread tying the note back to where it was heard.
         canvas.drawLine(
@@ -440,7 +453,7 @@ class ScorePainter extends CustomPainter {
           to,
           Offset(math.max(endX, to.dx + 0.1), to.dy),
           Paint()
-            ..color = _accent.withValues(alpha: 0.28 * conf)
+            ..color = noteColor.withValues(alpha: 0.28 * conf)
             ..strokeWidth = 3
             ..strokeCap = StrokeCap.round,
         );
@@ -452,7 +465,7 @@ class ScorePainter extends CustomPainter {
             to,
             Offset(px, to.dy),
             Paint()
-              ..color = _accent.withValues(alpha: 0.85)
+              ..color = noteColor.withValues(alpha: 0.85)
               ..strokeWidth = 3
               ..strokeCap = StrokeCap.round,
           );
@@ -467,7 +480,7 @@ class ScorePainter extends CustomPainter {
           canvas.drawCircle(
             along(back),
             2.4 * (1 - k / 8),
-            Paint()..color = _accent.withValues(alpha: 0.35 * (1 - k / 7) * conf),
+            Paint()..color = noteColor.withValues(alpha: 0.35 * (1 - k / 7) * conf),
           );
         }
       }
@@ -476,12 +489,12 @@ class ScorePainter extends CustomPainter {
       final pop = p > 0.8 ? math.sin(math.pi * (p - 0.8) / 0.2) : 0.0;
       final radius = (2.2 + 2.6 * e) * (1 + 0.35 * pop);
       final head = along(e);
-      canvas.drawCircle(head, radius, Paint()..color = _accent.withValues(alpha: conf));
+      canvas.drawCircle(head, radius, Paint()..color = noteColor.withValues(alpha: conf));
       if (lit) {
         canvas.drawCircle(
           head,
           radius + 5,
-          _strokePaint(_accent.withValues(alpha: 0.6))..strokeWidth = 1.2,
+          _strokePaint(noteColor.withValues(alpha: 0.6))..strokeWidth = 1.2,
         );
       }
 

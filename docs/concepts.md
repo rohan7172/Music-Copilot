@@ -31,6 +31,25 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   canvas with primitives (paths, arcs, text) instead of composing widgets;
   how the waveform, note arcs, and chord bands are actually rendered
 
+## Color as music theory (`harmonic_color.dart`)
+
+- Tonic/subdominant/dominant function — the three broad "roles" a chord
+  can play relative to the key: tonic (I, vi, iii) is rest/home,
+  dominant (V, vii°) is tension pulling back toward tonic, subdominant
+  (IV, ii) sits in between, moving away from home. This is the same
+  grouping behind `explain.py`'s per-degree descriptions
+  (`_BLURBS`) — the color system just gives it a visual form instead of
+  a sentence
+- `Color.lerp` — Flutter's way of blending linearly between two colors;
+  used here to turn a 0..1 "tension" value per scale degree into a
+  smooth lavender-to-coral gradient rather than hard-coded buckets
+- Why this duplicates `explain.py`'s roman-numeral regex in Dart rather
+  than asking the backend for a color or a degree number: the frontend
+  already has the `roman` string on every chord, so parsing it client-
+  side avoids a network round-trip or a backend response change for a
+  purely cosmetic concern — a reasonable case for a small, deliberate
+  duplication instead of a shared source of truth
+
 ## Picking an existing file (`audio/pick_audio_file.dart`)
 
 - `file_picker` — the system file-picker UI, restricted here to
