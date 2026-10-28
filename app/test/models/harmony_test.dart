@@ -2,6 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:music_copilot_app/models/harmony.dart';
 
 void main() {
+  group('MusicKey.fromJson', () {
+    test('parses the tonic alongside name and confidence', () {
+      final key = MusicKey.fromJson({'tonic': 'G', 'mode': 'major', 'name': 'G major', 'confidence': 0.9});
+
+      expect(key.tonic, 'G');
+      expect(key.name, 'G major');
+    });
+  });
+
   group('SummarySegment.fromJson', () {
     test('parses plain text with no chord link', () {
       final segment = SummarySegment.fromJson({'text': 'This is in C major, '});

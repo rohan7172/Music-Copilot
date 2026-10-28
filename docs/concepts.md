@@ -50,6 +50,33 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   purely cosmetic concern — a reasonable case for a small, deliberate
   duplication instead of a shared source of truth
 
+## Ambient atmosphere (`key_color.dart`, `ScorePainter._paintAmbient`)
+
+- Two different jobs for color, kept deliberately separate: `KeyColor`
+  gives the *key* a fixed identity (G major always looks the same hue,
+  with no theory attached), while `HarmonicColor` gives each *chord* a
+  reading of its function within that key. One says "what key am I
+  in," the other says "what is this chord doing right now."
+- `HSLColor` — unlike `Color` (which is red/green/blue), `HSLColor` is
+  hue/saturation/lightness: picking hues evenly spaced by degrees
+  (`pitchClass * 30°` for 12 keys) is far more natural in HSL than in
+  RGB, where "evenly spaced" colors aren't obvious from the numbers
+- `ui.Gradient.radial` — like the `ui.Gradient.linear` already used for
+  the analyzing-sweep stroke, but centered and radiating outward; the
+  way to paint a soft "glow" that fades to nothing rather than a hard
+  circle
+- Summed sine waves at different, unrelated frequencies as a cheap way
+  to fake "organic" motion — a single `sin(t)` repeats in an obviously
+  mechanical loop, but two or three summed together with frequencies
+  that don't share a common period (so they don't realign for a very
+  long time) reads as meandering rather than looping. The same idea
+  already powered the record button's breathing and the hint dots'
+  pulse, just with more terms layered in
+- A `sin(π·x)` "bump" (zero at x=0, peak at x=0.5, zero again at x=1)
+  as a reusable shape for anything that should rise and fall once
+  rather than stay on — already used for the note-landing "pop," reused
+  here for the chord-reveal pulses
+
 ## Picking an existing file (`audio/pick_audio_file.dart`)
 
 - `file_picker` — the system file-picker UI, restricted here to
@@ -78,6 +105,26 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   position, tracking playback state
 - `audio_session` — why recording and playback need different "modes" on
   iOS (recording can otherwise route playback to the earpiece speaker)
+- Why `session_screen.dart` has several small playback methods
+  (`_playRange`, `_togglePlayAll`, `_playFromHere`) instead of one
+  generalized one: they differ in exactly one thing — where `_playEnd`
+  stops — and keeping that fixed point explicit per-method is easier to
+  read and safer to change than threading extra parameters through a
+  single do-everything function
+
+## Deciding which note's name to show (`note_prominence.dart`)
+
+- Why this lives in a separate pure function rather than inline in the
+  painter: `isProminentNote` takes only a `List<Note>` and an index and
+  returns a `bool` — no `Canvas`, no animation state — so it can be unit
+  tested directly (`test/note_prominence_test.dart`), the same reasoning
+  behind `harmonic_color.dart`/`key_color.dart` being separate files
+- The heuristic itself — "the highest note sounding at this moment is
+  the melody" — is a real, commonly used simplification in music
+  software, not a guess invented for this app; it's cheap to compute and
+  right often enough to be useful, which is different from actually
+  identifying a vocal line (that would need source separation, a much
+  bigger ML problem)
 
 ## Talking to the backend
 

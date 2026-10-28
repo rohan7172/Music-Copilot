@@ -338,6 +338,24 @@ class _SessionScreenState extends State<SessionScreen>
     unawaited(_player.play());
   }
 
+  /// Seeks to [from] and plays onward to the end of the recording, lighting
+  /// up notes/chords as it crosses them the same way _togglePlayAll does -
+  /// a separate method so a plain note/chord tap can keep previewing just
+  /// its own slice (_playRange) unchanged.
+  Future<void> _playFromHere(double from) async {
+    if (!_playbackReady) return;
+    final duration = _scene.waveform?.duration ?? from;
+    setState(() {
+      _scene
+        ..selected = null
+        ..selectedChord = null;
+    });
+    _setPlayingAll(true);
+    await _player.seek(Duration(microseconds: (from * 1e6).round()));
+    _playEnd = duration;
+    unawaited(_player.play());
+  }
+
   void _setPlayingAll(bool value) {
     if (_playingAll == value) return;
     if (mounted) {
@@ -427,9 +445,13 @@ class _SessionScreenState extends State<SessionScreen>
       }
     }
 
-    // ...or the stretch of waveform a note was heard in.
+    // ...or the stretch of waveform a note was heard in. Missing every note
+    // here still means the tap landed on the waveform itself, so it seeks
+    // and plays onward rather than just deselecting.
+    double? waveformTapTime;
     if (hit == null && (tap.dy - layout.waveY).abs() < layout.waveAmp + 12) {
       final t = (tap.dx - layout.left) / layout.width * layout.duration;
+      waveformTapTime = t;
       for (var i = 0; i < _scene.notes.length; i++) {
         final n = _scene.notes[i];
         if (t >= n.startTime && t <= n.endTime) {
@@ -439,16 +461,23 @@ class _SessionScreenState extends State<SessionScreen>
       }
     }
 
-    setState(() {
-      _scene
-        ..selected = hit
-        ..selectedChord = null;
-    });
-    if (hit == null) {
-      _stopPlayback();
-    } else {
+    if (hit != null) {
+      setState(() {
+        _scene
+          ..selected = hit
+          ..selectedChord = null;
+      });
       final note = _scene.notes[hit];
       _playRange(note.startTime, note.endTime);
+    } else if (waveformTapTime != null) {
+      _playFromHere(waveformTapTime);
+    } else {
+      setState(() {
+        _scene
+          ..selected = null
+          ..selectedChord = null;
+      });
+      _stopPlayback();
     }
   }
 

@@ -2,16 +2,22 @@ import 'note.dart';
 
 /// The key the backend detected, e.g. "C major".
 class MusicKey {
-  MusicKey({required this.name, required this.confidence});
+  MusicKey({required this.name, required this.tonic, required this.confidence});
 
   factory MusicKey.fromJson(Map<String, dynamic> json) {
     return MusicKey(
       name: json['name'] as String,
+      tonic: json['tonic'] as String,
       confidence: (json['confidence'] as num).toDouble(),
     );
   }
 
   final String name;
+
+  /// The tonic note, e.g. "G" or "F#" — a key's identity, independent of
+  /// mode. Used to pick a consistent color for the key (see KeyColor).
+  final String tonic;
+
   final double confidence;
 }
 

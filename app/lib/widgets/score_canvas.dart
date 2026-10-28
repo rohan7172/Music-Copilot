@@ -7,8 +7,10 @@ import 'package:flutter/rendering.dart';
 
 import '../audio/waveform.dart';
 import '../harmonic_color.dart';
+import '../key_color.dart';
 import '../models/harmony.dart';
 import '../models/note.dart';
+import '../note_prominence.dart';
 import '../theme.dart';
 
 enum Phase { idle, recording, analyzing, settled }
@@ -143,9 +145,53 @@ class ScorePainter extends CustomPainter {
       case Phase.recording:
         _paintLive(canvas, layout, 1);
       case Phase.analyzing:
+        _paintRecorded(canvas, layout, now);
       case Phase.settled:
+        _paintAmbient(canvas, layout, now);
         _paintRecorded(canvas, layout, now);
     }
+  }
+
+  // --- Ambient atmosphere -----------------------------------------------------
+
+  static const _pulseDuration = 1.4;
+
+  /// A sense of musical atmosphere behind everything else, in the key's own
+  /// color (see KeyColor — an identity, not a harmonic-function reading):
+  /// one soft pulse across the whole screen as the piece "arrives," settling
+  /// into a slow, organic drift that never quite repeats.
+  void _paintAmbient(Canvas canvas, SceneLayout l, double now) {
+    final key = scene.key;
+    final settleStart = scene.settleStart;
+    if (key == null || settleStart == null) return;
+    final color = KeyColor.forTonic(key.tonic);
+    final center = Offset(l.size.width / 2, l.size.height / 2);
+    final diagonal = l.size.shortestSide + l.size.longestSide;
+    final t = now - settleStart;
+
+    // The one-shot pulse: expands past the edges of the screen while fading.
+    final pulseQ = (t / _pulseDuration).clamp(0.0, 1.0);
+    if (pulseQ < 1) {
+      final radius = diagonal * 0.45 * Curves.easeOut.transform(pulseQ);
+      final alpha = 0.45 * (1 - Curves.easeIn.transform(pulseQ));
+      _paintGlow(canvas, center, radius, color.withValues(alpha: alpha));
+    }
+
+    // The ambient drift: always present once settled, low and slow, its
+    // center meandering so it never looks mechanical or like it's looping.
+    final driftCenter = center +
+        Offset(
+          math.sin(t * 0.07) * l.size.width * 0.15 + math.sin(t * 0.031) * l.size.width * 0.08,
+          math.cos(t * 0.05) * l.size.height * 0.12 + math.cos(t * 0.043) * l.size.height * 0.07,
+        );
+    _paintGlow(canvas, driftCenter, diagonal * 0.4, color.withValues(alpha: 0.04));
+  }
+
+  void _paintGlow(Canvas canvas, Offset center, double radius, Color color) {
+    if (radius <= 0 || color.a <= 0) return;
+    final paint = Paint()
+      ..shader = ui.Gradient.radial(center, radius, [color, color.withValues(alpha: 0)]);
+    canvas.drawCircle(center, radius, paint);
   }
 
   // --- Idle -----------------------------------------------------------------
@@ -266,6 +312,18 @@ class ScorePainter extends CustomPainter {
       );
       final shape = RRect.fromRectAndRadius(rect, const Radius.circular(7));
       final color = HarmonicColor.forRoman(chord.roman);
+
+      // As this chord reveals itself, a small pulse glows around each of
+      // its notes — the progression's movement (I, then IV, then V, ...)
+      // felt around the notes themselves, not across the whole screen.
+      final pulse = math.sin(math.pi * q.clamp(0.0, 0.6) / 0.6);
+      if (pulse > 0) {
+        for (final note in scene.notes) {
+          if (!chord.contains(note)) continue;
+          _paintGlow(canvas, l.target(note), 45 * pulse, color.withValues(alpha: 0.18 * pulse));
+        }
+      }
+
       // Paper first, so the note threads pass behind the band.
       canvas.drawRRect(shape, Paint()..color = Palette.paper.withValues(alpha: q));
       canvas.drawRRect(
@@ -498,8 +556,10 @@ class ScorePainter extends CustomPainter {
         );
       }
 
-      // Name, fading in once landed; skipped where it would collide.
-      if (arrive > 0.3) {
+      // Name, fading in once landed; skipped where it would collide, and
+      // hidden entirely for a note buried under a higher one sounding at
+      // the same time — unless it's lit, so tapping it still reveals it.
+      if (arrive > 0.3 && (lit || isProminentNote(notes, i))) {
         final painter = TextPainter(
           text: TextSpan(
             text: note.pitch,
