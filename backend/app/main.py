@@ -8,6 +8,7 @@ from basic_pitch.inference import Model, predict
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.explain import explain_progression
 from app.harmony import analyze_harmony, without_overtones
 from app.notes import midi_to_note_name
 
@@ -73,4 +74,6 @@ async def analyze(file: UploadFile) -> dict:
     notes.sort(key=lambda n: n["start_time"])
     notes = without_overtones(notes)
 
-    return {"notes": notes, **analyze_harmony(notes)}
+    harmony = analyze_harmony(notes)
+    explanation = explain_progression(harmony["key"], harmony["chords"])
+    return {"notes": notes, **harmony, "explanation": explanation}

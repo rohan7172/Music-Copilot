@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 
 import '../audio/read_recording.dart';
 import '../audio/waveform.dart';
+import '../models/harmony.dart';
 import '../models/note.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
@@ -38,6 +39,10 @@ class _SessionScreenState extends State<SessionScreen>
   late final Ticker _ticker;
   StreamSubscription<Amplitude>? _amplitudeSub;
   String? _errorMessage;
+
+  /// Plain-language explanation of the detected key and chords, shown in the
+  /// status line. Null until an analysis has come back.
+  Explanation? _explanation;
 
   /// Whether the finished recording is loaded into [_player].
   bool _playbackReady = false;
@@ -104,6 +109,7 @@ class _SessionScreenState extends State<SessionScreen>
       ..hints = const []
       ..selected = null
       ..selectedChord = null;
+    _explanation = null;
     _recordingTime
       ..reset()
       ..start();
@@ -162,6 +168,7 @@ class _SessionScreenState extends State<SessionScreen>
       _scene
         ..chords = analysis.chords
         ..key = analysis.key;
+      _explanation = analysis.explanation;
       _settle(analysis.notes);
     } catch (e) {
       if (!mounted) return;
@@ -380,6 +387,10 @@ class _SessionScreenState extends State<SessionScreen>
         }
         final chordIndex = _scene.selectedChord;
         if (chordIndex != null) {
+          final explained = _explanation?.chords;
+          if (explained != null && chordIndex < explained.length) {
+            return explained[chordIndex].text;
+          }
           final c = _scene.chords[chordIndex];
           final key = _scene.key;
           return '${c.name}  ·  ${c.roman}${key == null ? '' : ' in ${key.name}'}'
@@ -394,9 +405,7 @@ class _SessionScreenState extends State<SessionScreen>
         }
         final count = _scene.notes.length;
         if (count == 0) return 'No notes found. Try a clearer, sustained tone.';
-        final chords = _scene.chords.length;
-        return '$count note${count == 1 ? '' : 's'}'
-            '${chords == 0 ? '' : '  ·  $chords chord${chords == 1 ? '' : 's'}'}';
+        return _explanation?.summary ?? '$count note${count == 1 ? '' : 's'}';
     }
   }
 

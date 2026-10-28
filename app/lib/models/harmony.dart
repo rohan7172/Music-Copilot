@@ -59,9 +59,45 @@ class Chord {
       note.endTime > startTime;
 }
 
+/// A plain-language explanation of one chord's role in the key, e.g.
+/// "G — the V chord, dominant: tension that pulls back toward the tonic".
+class ChordExplanation {
+  ChordExplanation({required this.text});
+
+  factory ChordExplanation.fromJson(Map<String, dynamic> json) {
+    return ChordExplanation(text: json['text'] as String);
+  }
+
+  final String text;
+}
+
+/// A plain-language summary of the key and progression, plus a matching
+/// explanation for each chord in [Analysis.chords].
+class Explanation {
+  Explanation({required this.summary, required this.chords});
+
+  factory Explanation.fromJson(Map<String, dynamic> json) {
+    return Explanation(
+      summary: json['summary'] as String,
+      chords: [
+        for (final c in json['chords'] as List<dynamic>)
+          ChordExplanation.fromJson(c as Map<String, dynamic>),
+      ],
+    );
+  }
+
+  final String summary;
+  final List<ChordExplanation> chords;
+}
+
 /// Everything /analyze returns for a recording.
 class Analysis {
-  Analysis({required this.notes, required this.key, required this.chords});
+  Analysis({
+    required this.notes,
+    required this.key,
+    required this.chords,
+    required this.explanation,
+  });
 
   factory Analysis.fromJson(Map<String, dynamic> json) {
     final key = json['key'];
@@ -75,10 +111,12 @@ class Analysis {
         for (final c in (json['chords'] as List<dynamic>? ?? const []))
           Chord.fromJson(c as Map<String, dynamic>),
       ],
+      explanation: Explanation.fromJson(json['explanation'] as Map<String, dynamic>),
     );
   }
 
   final List<Note> notes;
   final MusicKey? key;
   final List<Chord> chords;
+  final Explanation explanation;
 }
