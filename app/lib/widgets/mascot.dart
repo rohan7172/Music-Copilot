@@ -9,12 +9,14 @@ import 'score_canvas.dart' show Phase, Scene;
 // impeccable:direction-contract
 // THESIS: a supporting character, not a dashboard centerpiece — its state
 // always traces back to a real phase, never a generic idle loop.
-// SIGNATURE INTERACTION: clock-timestamp-driven transitions (idle breathing
-// + blink, listening whiskers that pulse with the live input level, an
-// analyzing head-tilt, a settle "pop" when results arrive) — the same
-// timestamp pattern ScorePainter already uses, no new animation machinery.
+// SIGNATURE INTERACTION: clock-timestamp-driven transitions (a one-time
+// "waking up" entrance, idle breathing + blink, listening whiskers that
+// pulse with the live input level, an analyzing head-tilt, a settle "pop"
+// when results arrive) — the same timestamp pattern ScorePainter already
+// uses, no new animation machinery.
 // FORM: brief-pinned, Inpiration/MASCOT_SUGGESTION1.png — a rounded "pill"
-// head, two dot eyes, one curved mouth line.
+// head with two dot eyes (no mouth), resting on a semicircular stand below
+// it, like a handheld mic in its base.
 
 /// Which expression the mascot shows for a given [Phase] — a pure mapping,
 /// kept separate from the painting code so it's unit-testable without a
@@ -57,7 +59,13 @@ class MascotPainter extends CustomPainter {
   static const _blinkCycle = 4.2;
   static const _blinkDuration = 0.14;
   static const _popDuration = 0.4;
-  static const _mouthSettleDuration = 0.6;
+
+  // The one-time "waking up" entrance, keyed off Scene.introStart: grows in
+  // partway through the intro, eyes opening shortly after — never repeats.
+  static const _wakeScaleStart = 0.5;
+  static const _wakeScaleDuration = 0.5;
+  static const _wakeEyesOpenStart = 0.85;
+  static const _wakeEyesOpenDuration = 0.35;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -72,12 +80,16 @@ class MascotPainter extends CustomPainter {
     canvas.translate(center.dx, center.dy);
 
     // A single overall scale per expression: a slow breath at rest, a brief
-    // overshoot pop the moment results arrive. Never both at once.
-    final scale = switch (expression) {
-      MascotExpression.idle => 1.0 + 0.02 * math.sin(now * 1.1),
-      MascotExpression.revealing => _popScale(now),
-      _ => 1.0,
-    };
+    // overshoot pop the moment results arrive, or the one-time wake-in grow
+    // — never more than one of these at once.
+    final wake = _wakeScale(now);
+    final scale = wake < 1.0
+        ? wake
+        : switch (expression) {
+            MascotExpression.idle => 1.0 + 0.02 * math.sin(now * 1.1),
+            MascotExpression.revealing => _popScale(now),
+            _ => 1.0,
+          };
     canvas.scale(scale);
 
     // A gentle head-tilt while thinking — the only rotation the mascot ever
@@ -92,12 +104,24 @@ class MascotPainter extends CustomPainter {
     canvas.drawRRect(bodyShape, Paint()..color = Palette.accent.withValues(alpha: bodyOpacity));
 
     _paintEyes(canvas, bodyH, now, expression);
-    _paintMouth(canvas, bodyW, bodyH, now, expression);
+    _paintStand(canvas, bodyW, bodyH);
     canvas.restore();
 
     if (expression == MascotExpression.listening) {
       _paintWhiskers(canvas, center, bodyW, bodyH, now);
     }
+  }
+
+  /// `1.0` once the wake-in grow has finished (or there's no intro to wake
+  /// from); eases up from a small scale beforehand. Separate from
+  /// [_popScale] — the two never overlap, since the wake-in always finishes
+  /// well before any analysis could settle.
+  double _wakeScale(double now) {
+    final introStart = scene.introStart;
+    if (introStart == null) return 1.0;
+    final t = ((now - introStart - _wakeScaleStart) / _wakeScaleDuration).clamp(0.0, 1.0);
+    if (t >= 1.0) return 1.0;
+    return 0.4 + 0.6 * Curves.easeOutBack.transform(t);
   }
 
   /// `1.0` outside the reveal window; a brief overshoot-then-settle pop the
@@ -115,10 +139,12 @@ class MascotPainter extends CustomPainter {
     final eyeDx = bodyH * 0.165;
     final eyeRadius = bodyH * 0.05 * (expression == MascotExpression.listening ? 1.15 : 1.0);
 
-    // A quick periodic blink at rest; a single, deliberate blink timed to
-    // the settle pop instead, never both.
     double openness = 1.0;
-    if (expression == MascotExpression.revealing) {
+    final wakeOpenness = _wakeEyesOpenness(now);
+    if (wakeOpenness != null) {
+      openness = wakeOpenness;
+    } else if (expression == MascotExpression.revealing) {
+      // A single, deliberate blink timed to the settle pop.
       final start = scene.settleStart;
       if (start != null) {
         final t = now - start;
@@ -127,6 +153,7 @@ class MascotPainter extends CustomPainter {
             : (1 - math.sin(math.pi * t / (_blinkDuration * 2))).clamp(0.08, 1.0);
       }
     } else {
+      // A quick periodic blink at rest.
       final phase = now % _blinkCycle;
       openness = phase > _blinkDuration
           ? 1.0
@@ -144,37 +171,42 @@ class MascotPainter extends CustomPainter {
     }
   }
 
-  void _paintMouth(Canvas canvas, double bodyW, double bodyH, double now, MascotExpression expression) {
-    final mouthY = bodyH * 0.12;
-    final mouthW = bodyW * 0.42;
-
-    // How deep the smile's curve dips — a resting curve, a slightly flatter
-    // one while thinking, and a brief deeper smile right as results land.
-    final depth = switch (expression) {
-      MascotExpression.analyzing => bodyH * 0.03,
-      MascotExpression.revealing => bodyH * _revealMouthDepthFactor(now),
-      _ => bodyH * 0.06,
-    };
-
-    final mouthColor = Color.lerp(Palette.accent, Colors.black, 0.4)!;
-    final path = Path()
-      ..moveTo(-mouthW / 2, mouthY)
-      ..quadraticBezierTo(0, mouthY + depth, mouthW / 2, mouthY);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = mouthColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = bodyH * 0.03
-        ..strokeCap = StrokeCap.round,
-    );
+  /// Eyes stay closed through the wake-in grow, then open over
+  /// [_wakeEyesOpenDuration] — null once that window has passed (or there's
+  /// no intro), handing control back to the normal blink/reveal logic.
+  double? _wakeEyesOpenness(double now) {
+    final introStart = scene.introStart;
+    if (introStart == null) return null;
+    final elapsed = now - introStart - _wakeEyesOpenStart;
+    if (elapsed < 0) return 0.08;
+    final t = (elapsed / _wakeEyesOpenDuration).clamp(0.0, 1.0);
+    if (t >= 1.0) return null;
+    return 0.08 + 0.92 * Curves.easeOut.transform(t);
   }
 
-  double _revealMouthDepthFactor(double now) {
-    final start = scene.settleStart;
-    if (start == null) return 0.06;
-    final t = ((now - start) / _mouthSettleDuration).clamp(0.0, 1.0);
-    return 0.06 + 0.05 * (1 - Curves.easeOut.transform(t));
+  /// The semicircular stand a handheld mic rests in — a physical detail,
+  /// not a facial feature, so it's static (no expression changes it).
+  void _paintStand(Canvas canvas, double bodyW, double bodyH) {
+    final standWidth = bodyW * 1.15;
+    final gap = bodyH * 0.07;
+    final radius = standWidth / 2;
+    final rect = Rect.fromCenter(
+      center: Offset(0, bodyH / 2 + gap),
+      width: standWidth,
+      height: radius * 2,
+    );
+    final standColor = Color.lerp(Palette.accent, Colors.black, 0.4)!;
+    canvas.drawArc(
+      rect,
+      0,
+      math.pi,
+      false,
+      Paint()
+        ..color = standColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = bodyH * 0.035
+        ..strokeCap = StrokeCap.round,
+    );
   }
 
   /// Small curved ticks flanking the head, the mascot "noticing" sound —

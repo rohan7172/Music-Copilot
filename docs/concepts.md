@@ -131,7 +131,7 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   read and safer to change than threading extra parameters through a
   single do-everything function
 
-## The mascot and splash screen (`widgets/mascot.dart`, `screens/splash_screen.dart`)
+## The mascot (`widgets/mascot.dart`)
 
 - Reusing the `CustomPainter` + pure-state-mapping pattern for a second,
   unrelated character: `expressionForPhase` is a plain `Phase ->
@@ -145,15 +145,11 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   a full capsule/pill — no separate "pill" drawing code needed, just the
   right radius relative to the box (used for both the mascot's body and
   the `_QuietButton` chips, via the shared `Shape.pill` constant)
-- `AnimationController` as a *bounded*, one-shot alternative to the
-  free-running `Ticker`/clock pattern used everywhere else: the splash
-  needs a fixed-length sequence with a "done" callback (`addStatusListener`,
-  `AnimationStatus.completed`), which `AnimationController` gives for
-  free, rather than hand-rolling an end-time check against the shared
-  clock
-- `PageRouteBuilder` + `FadeTransition` — a custom, minimal screen
-  transition (a plain cross-fade) instead of the platform's default
-  slide, used to move from the splash into the session screen
+- `canvas.drawArc` — the mascot's stand (the base a handheld mic rests
+  in) is just the bottom half of a circle: `startAngle: 0` (3 o'clock),
+  `sweepAngle: pi`, which in Flutter's clockwise-from-positive-x
+  convention traces exactly the bottom semicircle, no path-building
+  needed
 - Programmatic audio synthesis (`scripts/generate_splash_chime.py`): a
   sine wave sampled at 44.1kHz, scaled to 16-bit PCM integers, and
   wrapped in a WAV header (Python's `wave` module) — enough to generate
@@ -164,6 +160,43 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   custom-shaped tappable surface (here, a pill) that still shows the
   platform's ink-ripple feedback on tap, rather than a plain
   `GestureDetector` with no visual response
+
+## The wake-up intro and musical lines (`ScorePainter`, `Scene.introStart`)
+
+- Folding what was a separate splash screen directly into
+  `SessionScreen`'s existing `Scene`/`ScorePainter`, rather than two
+  screens connected by a `Navigator` route: a `CustomPainter`-drawn
+  shape has no identity Flutter can animate across a route change (no
+  Hero-style continuity for canvas drawing), so the only way to make
+  "the line stays on screen and just shifts position" literally true —
+  not simulated — is for it to be the same `Scene`, the same paint call,
+  the whole time. `Scene.introStart` is one more timestamp in the same
+  family as `settleStart`/`analyzeStart`: set once in `initState`, read
+  as `now - introStart` wherever something needs to animate once and
+  then stop (here, the line's vertical position lerping from
+  screen-center to its resting spot, and the mascot's one-time "waking
+  up" grow-and-blink in `mascot.dart`)
+- The waveform's literal amplitude trace is gone entirely, replaced by
+  "musical lines": 1-3 overlapping smooth strands sampled at a handful
+  of points and connected with straight segments (no path-smoothing
+  needed — the strand count is low and the motion is continuous, so the
+  simpler polyline reads just as smoothly as the old quadratic-bezier
+  envelope did). Their *shape* still comes from real audio
+  (`sampleEnvelope` on the decoded `Waveform`, or the live amplitude
+  array while actively recording) — only the rendering changed, not the
+  underlying data
+- Summed sines per strand, each at a different, unrelated frequency and
+  phase (the same "organic, never-quite-looping" trick already used for
+  the ambient drift) — what makes three strands read as independent
+  flowing lines rather than one line traced three times
+- `chordColorAt` (`test/chord_color_test.dart`): a pure function that
+  answers "what color is the music at this moment in time," generalizing
+  the per-note chord lookup `_paintNotes` already did into something
+  reusable along a continuous timeline. The lines are split into
+  same-color runs at every chord boundary and colored by
+  `HarmonicColor.forRoman` for that run — genuinely data-driven, not a
+  decorative fixed palette, matching the app's existing stance that
+  color should mean something musically
 
 ## Talking to the backend
 

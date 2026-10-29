@@ -34,6 +34,7 @@ class _SessionScreenState extends State<SessionScreen>
     with SingleTickerProviderStateMixin {
   final AudioRecorder _recorder = AudioRecorder();
   AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _introPlayer = AudioPlayer();
   StreamSubscription<bool>? _playingSub;
   final ApiService _apiService = ApiService();
   final Scene _scene = Scene();
@@ -71,6 +72,21 @@ class _SessionScreenState extends State<SessionScreen>
       _clock.value = elapsed.inMicroseconds / 1e6;
     })..start();
     _watchPlayer();
+    // The one-time "waking up" intro: the line settles into position and
+    // the mascot appears, timed to a short chime — see
+    // ScorePainter._lineBaselineY and Mascot's wake-in.
+    _scene.introStart = _clock.value;
+    unawaited(_playIntroChime());
+  }
+
+  Future<void> _playIntroChime() async {
+    try {
+      await _introPlayer.setAsset('assets/sounds/chime.wav');
+      await _introPlayer.play();
+    } catch (e) {
+      // The intro still works without sound.
+      debugPrint('Could not play intro chime: $e');
+    }
   }
 
   @override
@@ -80,6 +96,7 @@ class _SessionScreenState extends State<SessionScreen>
     _recorder.dispose();
     _playingSub?.cancel();
     _player.dispose();
+    _introPlayer.dispose();
     _clock.dispose();
     super.dispose();
   }
@@ -440,6 +457,14 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   void _onTap(TapUpDetails details, Size size) {
+    // A tap during the wake-up intro skips straight to its settled end
+    // state, same "tap to skip" affordance the splash screen used to have.
+    final introStart = _scene.introStart;
+    if (introStart != null && _clock.value - introStart < introDuration) {
+      setState(() => _scene.introStart = _clock.value - introDuration);
+      return;
+    }
+
     if (_phase != Phase.settled || _scene.notes.isEmpty) return;
     final layout = SceneLayout(size, _scene);
     final tap = details.localPosition;

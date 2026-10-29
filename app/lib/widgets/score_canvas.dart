@@ -26,6 +26,12 @@ const canvasMargin = 52.0;
 class Scene {
   Phase phase = Phase.idle;
 
+  /// Set once, the first time the screen appears: drives the one-time
+  /// "waking up" intro (the line settling into position, the mascot
+  /// appearing) — see `ScorePainter._lineBaselineY`/`Mascot`'s wake-in.
+  /// Left null and the screen just opens already settled, no intro.
+  double? introStart;
+
   /// Live loudness (0..1) sampled while recording, evenly spaced over
   /// [liveDuration].
   final List<double> live = [];
@@ -70,6 +76,13 @@ const _morphTime = 0.7;
 const _flightTime = 0.9;
 const _liveWindow = 6.0;
 
+/// How long the one-time wake-up intro runs, and when its three ripples
+/// land along it — kept in sync with `assets/sounds/chime.wav` (see
+/// `scripts/generate_splash_chime.py`).
+const introDuration = 1.3;
+const _introNoteOnsets = [0.0, 0.27, 0.54];
+const _introBumpDuration = 0.5;
+
 double settleStagger(int noteCount) =>
     math.min(0.11, 1.6 / math.max(1, noteCount));
 
@@ -81,6 +94,18 @@ double chordsAppear(Scene scene) =>
 
 const _chordStagger = 0.08;
 const _chordDraw = 0.5;
+
+/// The harmonic-tension color of whichever chord covers [t] (seconds), or
+/// the neutral color if none does — the same per-moment chord lookup
+/// `_paintNotes` already does per note, generalized to any point in time so
+/// the musical lines can be colored by what's actually sounding there. Pure
+/// and unit-tested (`test/chord_color_test.dart`).
+Color chordColorAt(List<Chord> chords, double t) {
+  for (final c in chords) {
+    if (t >= c.startTime && t <= c.endTime) return HarmonicColor.forRoman(c.roman);
+  }
+  return HarmonicColor.neutral;
+}
 
 /// Where things sit on screen. Shared by the painter and the screen's hit
 /// testing.
@@ -145,7 +170,9 @@ class SceneLayout {
     return laneBottom - (midi - _lo) / (_hi - _lo) * (laneBottom - laneTop);
   }
 
-  /// Point on the waveform's upper edge where a note begins.
+  /// Point on the musical lines' band where a note begins — notes still
+  /// visually "emerge from" the lines exactly as before; only how the band
+  /// itself is drawn has changed.
   Offset origin(Note n) => Offset(
     xForTime(n.startTime),
     waveY - (scene.waveform?.at(n.startTime) ?? 0) * waveAmp,
@@ -154,6 +181,17 @@ class SceneLayout {
   /// Resting place of a note's head in the pitch lane.
   Offset target(Note n) => Offset(xForTime(n.startTime), yForMidi(n.midiPitch));
 }
+
+/// Per-strand shape: phase/frequency/speed give each of the up to 3
+/// overlapping musical lines a different, non-repeating wobble (the same
+/// "summed sines at unrelated frequencies" trick already used for the
+/// ambient drift), [offset] stacks them vertically, [ampScale] varies how
+/// much each one moves.
+const _ribbonPhase = [0.0, 1.7, 3.4];
+const _ribbonFreq = [1.5, 2.0, 1.2];
+const _ribbonSpeed = [0.55, 0.45, 0.65];
+const _ribbonOffset = [-9.0, 0.0, 9.0];
+const _ribbonAmpScale = [0.75, 1.0, 0.6];
 
 class ScorePainter extends CustomPainter {
   ScorePainter(this.scene, this.clock) : super(repaint: clock);
@@ -171,9 +209,9 @@ class ScorePainter extends CustomPainter {
 
     switch (scene.phase) {
       case Phase.idle:
-        _paintIdleLine(canvas, layout);
+        _paintIdleLines(canvas, layout, now);
       case Phase.recording:
-        _paintLive(canvas, layout, 1);
+        _paintLiveLines(canvas, layout, now, 1);
       case Phase.analyzing:
         _paintRecorded(canvas, layout, now);
       case Phase.settled:
@@ -226,9 +264,9 @@ class ScorePainter extends CustomPainter {
   }
 
   /// 0 before settling, rising to 1 over the same span as the ambient
-  /// pulse — how far the waveform has gone from plain ink toward the key's
-  /// bold color.
-  double _waveformColorT(double now) {
+  /// pulse — how far the key name's text has gone from plain ink toward the
+  /// key's own dark color (see `_paintKey`).
+  double _keyTextColorT(double now) {
     final settleStart = scene.settleStart;
     if (scene.phase != Phase.settled ||
         scene.key == null ||
@@ -236,16 +274,6 @@ class ScorePainter extends CustomPainter {
       return 0;
     }
     return ((now - settleStart) / _pulseDuration).clamp(0.0, 1.0);
-  }
-
-  /// The waveform's own color: ink-gray until settled, then crossfading to
-  /// the key's bold, fully-saturated color (not a faint tint of it) over
-  /// the same span as the ambient pulse — the splash visually "paints" the
-  /// waveform as it passes over it.
-  Color _waveformBaseColor(double now, double t) {
-    final key = scene.key;
-    if (key == null) return _ink;
-    return Color.lerp(_ink, KeyColor.forTonicVivid(key.tonic), t)!;
   }
 
   void _paintGlow(Canvas canvas, Offset center, double radius, Color color) {
@@ -258,56 +286,164 @@ class ScorePainter extends CustomPainter {
     canvas.drawCircle(center, radius, paint);
   }
 
-  // --- Idle -----------------------------------------------------------------
+  // --- Musical lines ----------------------------------------------------------
+  //
+  // The one representation of recorded audio, in every phase: up to three
+  // overlapping flowing strands rather than a literal amplitude trace.
+  // Their *shape* is still driven by the real recording (loudness widens
+  // the wobble); their *color* is whichever chord covers that moment,
+  // falling back to the single accent lavender before any chord is known.
 
-  /// The empty slate: a barely-there pen line the waveform will grow from.
-  void _paintIdleLine(Canvas canvas, SceneLayout l) {
-    final paint = Paint()
-      ..color = _ink.withValues(alpha: 0.08)
-      ..strokeWidth = 1;
-    canvas.drawLine(Offset(l.left, l.waveY), Offset(l.right, l.waveY), paint);
+  /// Where the lines sit vertically: lerps from screen-center to the
+  /// resting position during the one-time wake intro, then stays put —
+  /// the literal "the line stays on screen and shifts position" the intro
+  /// is built around. Settles immediately once there's anything to show
+  /// (recording/analyzing/settled always use the resting position).
+  double _lineBaselineY(SceneLayout l, double now) {
+    final introStart = scene.introStart;
+    if (introStart == null || scene.phase != Phase.idle) return l.waveY;
+    final t = ((now - introStart) / introDuration).clamp(0.0, 1.0);
+    return ui.lerpDouble(
+      l.size.height * 0.5,
+      l.waveY,
+      Curves.easeInOutCubic.transform(t),
+    )!;
   }
 
-  // --- Recording ------------------------------------------------------------
+  /// Extra wobble from the intro's three-note chime ripple, at strand
+  /// position [f] (0..1 along the full line) — zero once the intro window
+  /// has passed, or outside idle.
+  double _introBump(double now, double f) {
+    final introStart = scene.introStart;
+    if (introStart == null || scene.phase != Phase.idle) return 0;
+    final elapsed = now - introStart;
+    var bump = 0.0;
+    for (var j = 0; j < _introNoteOnsets.length; j++) {
+      final q = ((elapsed - _introNoteOnsets[j]) / _introBumpDuration).clamp(
+        0.0,
+        1.0,
+      );
+      if (q <= 0 || q >= 1) continue;
+      final rise = math.sin(math.pi * q);
+      final anchor = (j + 1) / (_introNoteOnsets.length + 1);
+      final dist = f - anchor;
+      const sigma = 0.12;
+      bump += rise * math.exp(-(dist * dist) / (2 * sigma * sigma));
+    }
+    return bump;
+  }
+
+  double _ribbonY(int index, double f, double now, double baselineY, double amp) {
+    final wobble =
+        math.sin(
+          f * 2 * math.pi * _ribbonFreq[index] +
+              now * _ribbonSpeed[index] +
+              _ribbonPhase[index],
+        ) +
+        0.4 *
+            math.sin(
+              f * 2 * math.pi * _ribbonFreq[index] * 1.7 -
+                  now * _ribbonSpeed[index] * 0.6 +
+                  _ribbonPhase[index] * 1.3,
+            );
+    return baselineY + _ribbonOffset[index] + wobble * amp * _ribbonAmpScale[index];
+  }
+
+  /// Strokes one strand from [x0] to [x1] (pixels); [ampAt] gives real
+  /// loudness (0..1-ish) at a 0..1 fraction across the strand, [introBumpAt]
+  /// optionally adds the wake-intro ripple on the same fraction.
+  void _strokeRibbon(
+    Canvas canvas,
+    int index,
+    double x0,
+    double x1,
+    double baselineY,
+    double now,
+    double Function(double f) ampAt,
+    Color color, {
+    double Function(double f)? introBumpAt,
+    ui.Shader? shader,
+  }) {
+    if (x1 <= x0) return;
+    const samples = 48;
+    final path = Path();
+    for (var i = 0; i <= samples; i++) {
+      final f = i / samples;
+      final x = x0 + (x1 - x0) * f;
+      final amp = ampAt(f) * 9.0 + (introBumpAt?.call(f) ?? 0) * 15.0;
+      final y = _ribbonY(index, f, now, baselineY, amp);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    final paint = _strokePaint(color)..strokeWidth = 1.8;
+    if (shader != null) paint.shader = shader;
+    canvas.drawPath(path, paint);
+  }
+
+  /// The idle line: flat and barely-there at rest (nothing recorded yet),
+  /// with only the wake-intro's ripple giving it any shape — the same line
+  /// the splash intro drew, now continuing straight into this resting spot.
+  void _paintIdleLines(Canvas canvas, SceneLayout l, double now) {
+    final baseline = _lineBaselineY(l, now);
+    final introStart = scene.introStart;
+    final introActive = introStart != null && now - introStart < introDuration;
+    final alpha = introActive ? 0.6 : 0.3;
+    _strokeRibbon(
+      canvas,
+      1,
+      l.left,
+      l.right,
+      baseline,
+      now,
+      (f) => 0,
+      _accent.withValues(alpha: alpha),
+      introBumpAt: (f) => _introBump(now, f),
+    );
+  }
 
   double _liveSpan(SceneLayout l) =>
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
-  void _paintLive(
+  /// The single line while actively recording (and fading out during the
+  /// morph into the recorded/colored lines) — one lavender strand whose
+  /// wobble follows the live input level, same as the reference's
+  /// "Listening" screen.
+  void _paintLiveLines(
     Canvas canvas,
     SceneLayout l,
+    double now,
     double opacity, {
     double? spanOverride,
   }) {
     final span = spanOverride ?? _liveSpan(l);
+    final baseline = _lineBaselineY(l, now);
     // The unfilled remainder of the line, still waiting for sound.
     canvas.drawLine(
-      Offset(l.left + span, l.waveY),
-      Offset(l.right, l.waveY),
+      Offset(l.left + span, baseline),
+      Offset(l.right, baseline),
       Paint()
         ..color = _ink.withValues(alpha: 0.08 * opacity)
         ..strokeWidth = 1,
     );
-    if (scene.live.length < 2) return;
-    final path = _envelopePath(
-      scene.live,
-      0,
+    if (span <= 0) return;
+    double ampAt(double f) => scene.live.isEmpty ? 0.0 : sampleEnvelope(scene.live, f);
+    _strokeRibbon(
+      canvas,
       1,
       l.left,
       l.left + span,
-      l.waveY,
-      l.waveAmp,
+      baseline,
+      now,
+      ampAt,
+      _accent.withValues(alpha: 0.75 * opacity),
     );
-    canvas.drawPath(
-      path,
-      Paint()..color = _ink.withValues(alpha: 0.10 * opacity),
-    );
-    canvas.drawPath(path, _strokePaint(_ink.withValues(alpha: 0.55 * opacity)));
     if (scene.phase == Phase.recording) {
       // The pen tip.
-      final tip = Offset(l.left + span, l.waveY);
       canvas.drawCircle(
-        tip,
+        Offset(l.left + span, baseline),
         3,
         Paint()..color = _accent.withValues(alpha: 0.8),
       );
@@ -319,7 +455,7 @@ class ScorePainter extends CustomPainter {
   void _paintRecorded(Canvas canvas, SceneLayout l, double now) {
     final waveform = scene.waveform;
     if (waveform == null) {
-      _paintLive(canvas, l, 1);
+      _paintLiveLines(canvas, l, now, 1);
       return;
     }
 
@@ -327,48 +463,9 @@ class ScorePainter extends CustomPainter {
       ((now - (scene.morphStart ?? now)) / _morphTime).clamp(0.0, 1.0),
     );
     final span = ui.lerpDouble(_liveSpan(l), l.width, morph)!;
-    if (morph < 1) _paintLive(canvas, l, 1 - morph, spanOverride: span);
+    if (morph < 1) _paintLiveLines(canvas, l, now, 1 - morph, spanOverride: span);
 
-    // While analyzing, the waveform breathes and a reading light sweeps it.
-    final analyzing = scene.phase == Phase.analyzing;
-    final amp = l.waveAmp * (analyzing ? 1 + 0.04 * math.sin(now * 2.2) : 1);
-    final path = _envelopePath(
-      waveform.envelope,
-      0,
-      1,
-      l.left,
-      l.left + span,
-      l.waveY,
-      amp,
-    );
-    // As the waveform's color arrives, it also grows bolder — a faint ink
-    // wash becomes a solid, fully-saturated ribbon, not just a tinted gray.
-    final colorT = _waveformColorT(now);
-    final waveColor = _waveformBaseColor(now, colorT);
-    final fillAlpha = ui.lerpDouble(0.10, 0.4, colorT)!;
-    final strokeAlpha = ui.lerpDouble(0.55, 0.95, colorT)!;
-    canvas.drawPath(
-      path,
-      Paint()..color = waveColor.withValues(alpha: fillAlpha * morph),
-    );
-    final stroke = _strokePaint(
-      waveColor.withValues(alpha: strokeAlpha * morph),
-    )..strokeWidth = ui.lerpDouble(1, 1.6, colorT)!;
-    if (analyzing) {
-      final sweep = ((now - (scene.analyzeStart ?? now)) % 1.8) / 1.8;
-      final x = l.left + sweep * l.width;
-      stroke.shader = ui.Gradient.linear(
-        Offset(x - 90, 0),
-        Offset(x + 90, 0),
-        [
-          _ink.withValues(alpha: 0.55 * morph),
-          _accent.withValues(alpha: 0.95 * morph),
-          _ink.withValues(alpha: 0.55 * morph),
-        ],
-        const [0, 0.5, 1],
-      );
-    }
-    canvas.drawPath(path, stroke);
+    _paintRecordedLines(canvas, l, now, waveform, span, morph);
 
     final playhead = scene.playhead;
     if (playhead != null && scene.phase == Phase.settled) {
@@ -389,6 +486,95 @@ class ScorePainter extends CustomPainter {
       _paintChords(canvas, l, now);
       _paintKey(canvas, l, now);
     }
+  }
+
+  /// The colored lines once a real recording exists: 1 strand before any
+  /// chord is known (analyzing), 3 once chords have landed — each segment
+  /// of the timeline colored by whichever chord covers it
+  /// ([chordColorAt]), an "analyzing" sweep highlight riding across all of
+  /// them while the backend is still thinking.
+  void _paintRecordedLines(
+    Canvas canvas,
+    SceneLayout l,
+    double now,
+    Waveform waveform,
+    double span,
+    double morph,
+  ) {
+    final baseline = _lineBaselineY(l, now);
+    final analyzing = scene.phase == Phase.analyzing;
+    final breathe = analyzing ? 1 + 0.04 * math.sin(now * 2.2) : 1.0;
+    final ribbonCount = scene.phase == Phase.settled && scene.chords.isNotEmpty ? 3 : 1;
+    final indices = ribbonCount == 1 ? const [1] : const [0, 1, 2];
+    final shader = analyzing ? _sweepShader(l, now, morph) : null;
+
+    double ampAt(double timeFraction) =>
+        sampleEnvelope(waveform.envelope, timeFraction) * breathe;
+
+    for (final segment in _lineColorSegments(l)) {
+      final (segStart, segEnd, color) = segment;
+      final x0 = l.xForTime(segStart);
+      final x1 = math.min(l.xForTime(segEnd), l.left + span);
+      if (x1 <= x0) continue;
+      final segColor = color.withValues(alpha: morph);
+      for (final k in indices) {
+        _strokeRibbon(
+          canvas,
+          k,
+          x0,
+          x1,
+          baseline,
+          now,
+          (f) {
+            final t = segStart + (segEnd - segStart) * f;
+            return ampAt(t / l.duration);
+          },
+          segColor,
+          shader: shader,
+        );
+      }
+    }
+  }
+
+  /// The timeline split into runs that share one color: a detected chord's
+  /// span gets its harmonic-tension color, any gap (before/between/after
+  /// chords, or no chords at all yet) gets the single accent lavender.
+  List<(double, double, Color)> _lineColorSegments(SceneLayout l) {
+    if (scene.phase != Phase.settled || scene.chords.isEmpty) {
+      return [(0.0, l.duration, _accent)];
+    }
+    final sorted = [...scene.chords]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final bounds = <double>{0.0, l.duration};
+    for (final c in sorted) {
+      bounds.add(c.startTime.clamp(0.0, l.duration));
+      bounds.add(c.endTime.clamp(0.0, l.duration));
+    }
+    final sortedBounds = bounds.toList()..sort();
+    final segments = <(double, double, Color)>[];
+    for (var i = 0; i < sortedBounds.length - 1; i++) {
+      final start = sortedBounds[i];
+      final end = sortedBounds[i + 1];
+      if (end <= start) continue;
+      final color = chordColorAt(sorted, (start + end) / 2);
+      segments.add((start, end, color));
+    }
+    return segments;
+  }
+
+  ui.Shader _sweepShader(SceneLayout l, double now, double morph) {
+    final sweep = ((now - (scene.analyzeStart ?? now)) % 1.8) / 1.8;
+    final x = l.left + sweep * l.width;
+    return ui.Gradient.linear(
+      Offset(x - 90, 0),
+      Offset(x + 90, 0),
+      [
+        _ink.withValues(alpha: 0.55 * morph),
+        _accent.withValues(alpha: 0.95 * morph),
+        _ink.withValues(alpha: 0.55 * morph),
+      ],
+      const [0, 0.5, 1],
+    );
   }
 
   /// Pitch names once, down the left edge, piano-roll style — replaces a
@@ -595,7 +781,7 @@ class ScorePainter extends CustomPainter {
     final nameColor = Color.lerp(
       _ink,
       KeyColor.forTonicDark(key.tonic),
-      _waveformColorT(now),
+      _keyTextColorT(now),
     )!;
     final painter = TextPainter(
       text: TextSpan(
@@ -623,7 +809,7 @@ class ScorePainter extends CustomPainter {
     painter.paint(canvas, Offset(l.left, l.size.height * 0.06));
   }
 
-  /// Small dots lifting off the waveform's peaks: the app "listening closely".
+  /// Small dots lifting off the lines' peaks: the app "listening closely".
   void _paintHints(Canvas canvas, SceneLayout l, double now, double morph) {
     if (scene.hints.isEmpty) return;
     var fade = morph;
@@ -732,22 +918,14 @@ class ScorePainter extends CustomPainter {
       );
       final outlier = l.isOutlier(i);
 
-      // The slice of waveform this note came from, now tinted.
       if (arrive > 0) {
-        final segment = _envelopePath(
-          scene.waveform!.envelope,
-          note.startTime / l.duration,
-          note.endTime / l.duration,
-          l.xForTime(note.startTime),
-          l.xForTime(note.endTime),
-          l.waveY,
-          l.waveAmp,
-        );
-        final tint = lit ? 0.3 : 0.05 * dim;
-        canvas.drawPath(
-          segment,
-          Paint()..color = noteColor.withValues(alpha: tint * arrive),
-        );
+        // A soft glow where this note came from, while it's still landing
+        // or while selected/playing — simpler than tracing the exact line
+        // shape underneath, and reads just as clearly as "this is where it
+        // came from."
+        if (lit) {
+          _paintGlow(canvas, from, 36, noteColor.withValues(alpha: 0.25 * arrive));
+        }
 
         // Thread tying the note back to where it was heard — only while
         // it's still landing, or while selected/playing; hidden otherwise
@@ -859,56 +1037,12 @@ class ScorePainter extends CustomPainter {
     ..color = color
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1
-    ..strokeJoin = StrokeJoin.round;
+    ..strokeJoin = StrokeJoin.round
+    ..strokeCap = StrokeCap.round;
 
   static Offset _bezier(Offset a, Offset c, Offset b, double t) {
     final u = 1 - t;
     return a * (u * u) + c * (2 * u * t) + b * (t * t);
-  }
-
-  /// A smooth, mirrored outline of [envelope] between fractions [f0]..[f1],
-  /// drawn from x0 to x1 around [cy]. Silence reads as a hairline, not a gap.
-  static Path _envelopePath(
-    List<double> envelope,
-    double f0,
-    double f1,
-    double x0,
-    double x1,
-    double cy,
-    double amp,
-  ) {
-    final count = math.max(
-      2,
-      math.min(envelope.length, ((x1 - x0) / 3).round()),
-    );
-    final top = <Offset>[];
-    final bottom = <Offset>[];
-    for (var j = 0; j < count; j++) {
-      final f = j / (count - 1);
-      final v = sampleEnvelope(envelope, f0 + (f1 - f0) * f) * amp + 0.6;
-      final x = x0 + (x1 - x0) * f;
-      top.add(Offset(x, cy - v));
-      bottom.add(Offset(x, cy + v));
-    }
-    final path = Path()..moveTo(top.first.dx, top.first.dy);
-    _smoothThrough(path, top);
-    final back = bottom.reversed.toList();
-    path.lineTo(back.first.dx, back.first.dy);
-    _smoothThrough(path, back);
-    return path..close();
-  }
-
-  static void _smoothThrough(Path path, List<Offset> points) {
-    for (var i = 1; i < points.length; i++) {
-      final mid = Offset.lerp(points[i - 1], points[i], 0.5)!;
-      path.quadraticBezierTo(
-        points[i - 1].dx,
-        points[i - 1].dy,
-        mid.dx,
-        mid.dy,
-      );
-    }
-    path.lineTo(points.last.dx, points.last.dy);
   }
 
   @override
