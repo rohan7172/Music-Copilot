@@ -407,10 +407,27 @@ class ScorePainter extends CustomPainter {
   double _liveSpan(SceneLayout l) =>
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
-  /// The single line while actively recording (and fading out during the
-  /// morph into the settled, 3-strand lines) — one lavender strand whose
-  /// wobble follows the live input level, same as the reference's
-  /// "Listening" screen.
+  /// How loud *right now* — a short trailing average of [Scene.live], not a
+  /// per-moment history. The lines while recording aren't a waveform trace
+  /// any more, just a depiction of "something is being recorded": they
+  /// swell together as you get louder, the way a simple level meter would,
+  /// rather than plotting the past.
+  double _liveVolume() {
+    final live = scene.live;
+    if (live.isEmpty) return 0;
+    final window = math.min(6, live.length);
+    var sum = 0.0;
+    for (var i = live.length - window; i < live.length; i++) {
+      sum += live[i];
+    }
+    return sum / window;
+  }
+
+  /// Three cartoony strands while actively recording (and fading out during
+  /// the morph into the settled lines) — not trying to look like the real
+  /// waveform at all. Loudness swells all three together; each strand's own
+  /// fixed frequency (see `_ribbonFreq`) is the only nod to "pitch," a
+  /// stylized variety rather than anything actually detected live.
   void _paintLiveLines(
     Canvas canvas,
     SceneLayout l,
@@ -428,16 +445,19 @@ class ScorePainter extends CustomPainter {
         ..strokeWidth = 1,
     );
     if (span <= 0) return;
-    strokeMusicalLine(
-      canvas,
-      index: 1,
-      x0: l.left,
-      x1: l.left + span,
-      baselineY: l.waveY,
-      now: now,
-      amplitudeAt: (f) => smoothedAmplitude(scene.live, f),
-      color: LineColors.purple.withValues(alpha: 0.75 * opacity),
-    );
+    final volume = _liveVolume();
+    for (var k = 0; k < LineColors.all.length; k++) {
+      strokeMusicalLine(
+        canvas,
+        index: k,
+        x0: l.left,
+        x1: l.left + span,
+        baselineY: l.waveY,
+        now: now,
+        amplitudeAt: (f) => volume,
+        color: LineColors.all[k].withValues(alpha: 0.75 * opacity),
+      );
+    }
     if (scene.phase == Phase.recording) {
       // The pen tip.
       canvas.drawCircle(

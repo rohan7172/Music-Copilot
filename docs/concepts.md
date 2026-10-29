@@ -163,6 +163,16 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
 
 ## The splash screen, the wake-up intro, and musical lines
 
+- The lines while actively recording are a *depiction*, not a trace: they
+  used to plot `scene.live`'s history across the growing span (loud
+  earlier, quiet now, visible left to right), which still looked like a
+  miniature waveform. Now all three strands swell together from one
+  trailing average of recent loudness (`_liveVolume`) — a level-meter
+  "something is being recorded" feel, explicitly not required to
+  represent anything that happened earlier in the clip. The settled
+  lines (after analysis) are unaffected — they still map real amplitude
+  across the clip's actual duration, since at that point there's a real
+  finished recording to represent, not just a live level
 - The waveform's literal amplitude trace is gone entirely, replaced by
   "musical lines" (`strokeMusicalLine`, a top-level function in
   `score_canvas.dart` rather than a method — deliberately, so both
