@@ -1,9 +1,39 @@
 import 'package:flutter/material.dart';
 
-/// The "blank slate" palette: warm paper, graphite ink, one fountain-pen accent.
+// impeccable:direction-contract
+// THESIS: a companion-led, organic app — nothing on screen that doesn't
+// trace back to a real sound event.
+// OWN-WORLD: ivory ground, one lavender accent (Restrained strategy), soft
+// rounded "pill" shapes with no hard outlines, flowing lines over bars/grids.
+// FORM: brief-pinned — see Inpiration/FULL APP LOOK REFERENCE.png and
+// docs/superpowers/specs/2026-10-29-visual-identity-overhaul.md.
+
+/// The app's palette: warm ivory paper, graphite ink, one lavender accent.
+/// Replaces the earlier "blank slate" navy accent as part of the visual
+/// identity overhaul — everything else (paper, ink) was already close to
+/// the new brief, so only the accent actually changes hue.
 class Palette {
   static const paper = Color(0xFFFAF8F4);
   static const ink = Color(0xFF2B2B2B);
-  static const accent = Color(0xFF34506B);
+  static const accent = Color(0xFF8B7FC7);
   static const error = Color(0xFFB5523B);
+}
+
+/// Shared corner radius for the pill/organic shape language (buttons, chips,
+/// cards) — one number so the whole app reads as one consistent shape
+/// vocabulary rather than per-widget guesses.
+class Shape {
+  /// Fully round ("stadium") — for pill buttons and chips.
+  static const pill = 999.0;
+
+  /// Soft rounding for larger rectangular surfaces that aren't pills.
+  static const soft = 20.0;
+}
+
+/// Primarily a mobile app, but built to also run as a desktop app — on a
+/// wide window, content stays centered at a phone-like width instead of
+/// stretching edge-to-edge (where the waveform and mascot would read as
+/// thin and lost rather than organic).
+class Layout {
+  static const maxContentWidth = 480.0;
 }

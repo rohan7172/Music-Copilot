@@ -15,8 +15,10 @@ import '../audio/read_recording.dart';
 import '../audio/waveform.dart';
 import '../models/harmony.dart';
 import '../models/note.dart';
+import '../note_range.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import '../widgets/mascot.dart';
 import '../widgets/score_canvas.dart';
 
 /// One continuous canvas: an empty slate that becomes a waveform while you
@@ -84,7 +86,9 @@ class _SessionScreenState extends State<SessionScreen>
 
   Future<void> _startRecording() async {
     if (!await _recorder.hasPermission()) {
-      setState(() => _errorMessage = 'Microphone permission is required to record.');
+      setState(
+        () => _errorMessage = 'Microphone permission is required to record.',
+      );
       return;
     }
 
@@ -94,7 +98,8 @@ class _SessionScreenState extends State<SessionScreen>
     var path = '';
     if (!kIsWeb) {
       final dir = await getTemporaryDirectory();
-      path = '${dir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+      path =
+          '${dir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.wav';
     }
 
     await _recorder.start(
@@ -110,7 +115,9 @@ class _SessionScreenState extends State<SessionScreen>
       ..key = null
       ..hints = const []
       ..selected = null
-      ..selectedChord = null;
+      ..selectedChord = null
+      ..showFaintNotes = false
+      ..faintToggleStart = null;
     _explanation = null;
     _recordingTime
       ..reset()
@@ -118,10 +125,10 @@ class _SessionScreenState extends State<SessionScreen>
     _amplitudeSub = _recorder
         .onAmplitudeChanged(const Duration(milliseconds: 40))
         .listen((amp) {
-      // dBFS -> 0..1, curved so loud playing keeps some shape.
-      final level = ((amp.current + 60) / 60).clamp(0.0, 1.0);
-      _scene.live.add(math.pow(level, 1.6).toDouble());
-    });
+          // dBFS -> 0..1, curved so loud playing keeps some shape.
+          final level = ((amp.current + 60) / 60).clamp(0.0, 1.0);
+          _scene.live.add(math.pow(level, 1.6).toDouble());
+        });
 
     setState(() {
       _scene.phase = Phase.recording;
@@ -152,7 +159,8 @@ class _SessionScreenState extends State<SessionScreen>
 
     try {
       final bytes = await readRecording(path);
-      final waveform = Waveform.fromWavBytes(bytes) ??
+      final waveform =
+          Waveform.fromWavBytes(bytes) ??
           Waveform(normalizeEnvelope(_scene.live), _scene.liveDuration);
       _scene
         ..waveform = waveform
@@ -164,7 +172,9 @@ class _SessionScreenState extends State<SessionScreen>
       // Let the listening moment breathe even when the backend is quick.
       final minListen = analyzeStart + 1.6 - _clock.value;
       if (minListen > 0) {
-        await Future<void>.delayed(Duration(milliseconds: (minListen * 1000).round()));
+        await Future<void>.delayed(
+          Duration(milliseconds: (minListen * 1000).round()),
+        );
       }
       if (!mounted) return;
       _scene
@@ -202,7 +212,9 @@ class _SessionScreenState extends State<SessionScreen>
       ..key = null
       ..hints = const []
       ..selected = null
-      ..selectedChord = null;
+      ..selectedChord = null
+      ..showFaintNotes = false
+      ..faintToggleStart = null;
     _explanation = null;
 
     final analyzeStart = _clock.value;
@@ -226,10 +238,15 @@ class _SessionScreenState extends State<SessionScreen>
       }
       unawaited(_loadPlayback(picked.playbackSource));
 
-      final analysis = await _apiService.analyzeAudio(picked.bytes, filename: picked.filename);
+      final analysis = await _apiService.analyzeAudio(
+        picked.bytes,
+        filename: picked.filename,
+      );
       final minListen = analyzeStart + 1.6 - _clock.value;
       if (minListen > 0) {
-        await Future<void>.delayed(Duration(milliseconds: (minListen * 1000).round()));
+        await Future<void>.delayed(
+          Duration(milliseconds: (minListen * 1000).round()),
+        );
       }
       if (!mounted) return;
 
@@ -326,7 +343,8 @@ class _SessionScreenState extends State<SessionScreen>
       return;
     }
     final duration = _scene.waveform?.duration ?? 0;
-    final resume = _playingAll && (_scene.playhead ?? duration) < duration - 0.05;
+    final resume =
+        _playingAll && (_scene.playhead ?? duration) < duration - 0.05;
     setState(() {
       _scene
         ..selected = null
@@ -414,7 +432,8 @@ class _SessionScreenState extends State<SessionScreen>
     setState(() {
       _scene
         ..selected = null
-        ..selectedChord = index;
+        ..selectedChord = index
+        ..chordTapStart = _clock.value;
     });
     final chord = _scene.chords[index];
     _playRange(chord.startTime, chord.endTime);
@@ -425,7 +444,7 @@ class _SessionScreenState extends State<SessionScreen>
     final layout = SceneLayout(size, _scene);
     final tap = details.localPosition;
 
-    // A chord band...
+    // A chord tab...
     for (var j = 0; j < _scene.chords.length; j++) {
       if (layout.chordRect(_scene.chords[j]).inflate(6).contains(tap)) {
         _selectChord(j);
@@ -433,9 +452,8 @@ class _SessionScreenState extends State<SessionScreen>
       }
     }
 
-    int? hit;
-
     // ...a note head in the lane...
+    int? hit;
     var best = 24.0;
     for (var i = 0; i < _scene.notes.length; i++) {
       final d = (layout.target(_scene.notes[i]) - tap).distance;
@@ -444,23 +462,6 @@ class _SessionScreenState extends State<SessionScreen>
         hit = i;
       }
     }
-
-    // ...or the stretch of waveform a note was heard in. Missing every note
-    // here still means the tap landed on the waveform itself, so it seeks
-    // and plays onward rather than just deselecting.
-    double? waveformTapTime;
-    if (hit == null && (tap.dy - layout.waveY).abs() < layout.waveAmp + 12) {
-      final t = (tap.dx - layout.left) / layout.width * layout.duration;
-      waveformTapTime = t;
-      for (var i = 0; i < _scene.notes.length; i++) {
-        final n = _scene.notes[i];
-        if (t >= n.startTime && t <= n.endTime) {
-          hit = i;
-          break;
-        }
-      }
-    }
-
     if (hit != null) {
       setState(() {
         _scene
@@ -469,16 +470,23 @@ class _SessionScreenState extends State<SessionScreen>
       });
       final note = _scene.notes[hit];
       _playRange(note.startTime, note.endTime);
-    } else if (waveformTapTime != null) {
-      _playFromHere(waveformTapTime);
-    } else {
-      setState(() {
-        _scene
-          ..selected = null
-          ..selectedChord = null;
-      });
-      _stopPlayback();
+      return;
     }
+
+    // ...or the waveform itself, which always just seeks and plays onward
+    // from that point, with no note/chord preview involved.
+    if ((tap.dy - layout.waveY).abs() < layout.waveAmp + 12) {
+      final t = (tap.dx - layout.left) / layout.width * layout.duration;
+      _playFromHere(t);
+      return;
+    }
+
+    setState(() {
+      _scene
+        ..selected = null
+        ..selectedChord = null;
+    });
+    _stopPlayback();
   }
 
   /// The idle/recording/analyzing message; null once settled, where the
@@ -539,17 +547,32 @@ class _SessionScreenState extends State<SessionScreen>
     final style = _statusStyle(idle);
     final phaseMessage = _phaseMessage;
     if (phaseMessage != null) {
-      return Text(phaseMessage, key: ValueKey(phaseMessage), textAlign: TextAlign.center, style: style);
+      return Text(
+        phaseMessage,
+        key: ValueKey(phaseMessage),
+        textAlign: TextAlign.center,
+        style: style,
+      );
     }
     final count = _scene.notes.length;
     if (count == 0) {
       const message = 'No notes found. Try a clearer, sustained tone.';
-      return Text(message, key: const ValueKey(message), textAlign: TextAlign.center, style: style);
+      return Text(
+        message,
+        key: const ValueKey(message),
+        textAlign: TextAlign.center,
+        style: style,
+      );
     }
     final segments = _explanation?.summary;
     if (segments == null) {
       final message = '$count note${count == 1 ? '' : 's'}';
-      return Text(message, key: ValueKey(message), textAlign: TextAlign.center, style: style);
+      return Text(
+        message,
+        key: ValueKey(message),
+        textAlign: TextAlign.center,
+        style: style,
+      );
     }
     final linkStyle = style.copyWith(
       decoration: TextDecoration.underline,
@@ -567,7 +590,8 @@ class _SessionScreenState extends State<SessionScreen>
                 : TextSpan(
                     text: segment.text,
                     style: linkStyle,
-                    recognizer: TapGestureRecognizer()..onTap = () => _selectChord(segment.chordIndex!),
+                    recognizer: TapGestureRecognizer()
+                      ..onTap = () => _selectChord(segment.chordIndex!),
                   ),
         ],
       ),
@@ -579,124 +603,187 @@ class _SessionScreenState extends State<SessionScreen>
     final idle = _phase == Phase.idle;
     return Scaffold(
       backgroundColor: Palette.paper,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (d) => _onTap(d, size),
-                  child: CustomPaint(painter: ScorePainter(_scene, _clock)),
-                ),
-              ),
-              // Status area: sits above the slate when idle, below the
-              // waveform once there's something to look at. Once settled,
-              // it's two lines: a detail line above (what's selected or
-              // playing, if anything) over the overview, which never goes
-              // away once there's an analysis to show.
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeInOutCubic,
-                left: 24,
-                right: 24,
-                top: switch (_phase) {
-                  Phase.idle => size.height * 0.70 - 96,
-                  Phase.settled => size.height * 0.79,
-                  _ => size.height * 0.82,
-                },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_phase == Phase.settled)
-                      SizedBox(
-                        height: 22,
-                        // Rebuilt every frame so it can name the notes
-                        // sounding during full playback.
-                        child: ValueListenableBuilder<double>(
-                          valueListenable: _clock,
-                          builder: (context, _, _) {
-                            final detail = _detailText;
-                            return AnimatedSwitcher(
-                              duration: Duration(milliseconds: _playingAll ? 120 : 400),
-                              child: detail == null
-                                  ? const SizedBox.shrink(key: ValueKey('no-detail'))
-                                  : Text(
-                                      detail,
-                                      key: ValueKey(detail),
-                                      textAlign: TextAlign.center,
-                                      style: _statusStyle(false),
-                                    ),
-                            );
+      // Primarily mobile, but centered at a phone-like width on a wide
+      // (desktop) window rather than stretching the waveform/mascot thin.
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final size = constraints.biggest;
+              final statusTop = switch (_phase) {
+                Phase.idle => size.height * 0.70 - 96,
+                Phase.settled => size.height * 0.79,
+                _ => size.height * 0.82,
+              };
+              // The mascot is a large, calm presence at rest, centered where
+              // the waveform will grow from. The moment there's a task
+              // underway it recedes to a small presence at the very top —
+              // clear of the waveform/pitch-lane area, never overlapping it.
+              final mascotSize = idle ? 132.0 : 48.0;
+              final mascotTop = idle ? statusTop - mascotSize - 16 : 14.0;
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (d) => _onTap(d, size),
+                      child: CustomPaint(painter: ScorePainter(_scene, _clock)),
+                    ),
+                  ),
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeInOutCubic,
+                    left: 0,
+                    right: 0,
+                    top: mascotTop,
+                    child: Center(
+                      child: Mascot(
+                        scene: _scene,
+                        clock: _clock,
+                        size: mascotSize,
+                      ),
+                    ),
+                  ),
+                  // Status area: sits above the slate when idle, below the
+                  // waveform once there's something to look at. Once settled,
+                  // it's two lines: a detail line above (what's selected or
+                  // playing, if anything) over the overview, which never goes
+                  // away once there's an analysis to show.
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeInOutCubic,
+                    left: 24,
+                    right: 24,
+                    top: statusTop,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_phase == Phase.settled)
+                          SizedBox(
+                            height: 22,
+                            // Rebuilt every frame so it can name the notes
+                            // sounding during full playback.
+                            child: ValueListenableBuilder<double>(
+                              valueListenable: _clock,
+                              builder: (context, _, _) {
+                                final detail = _detailText;
+                                return AnimatedSwitcher(
+                                  duration: Duration(
+                                    milliseconds: _playingAll ? 120 : 400,
+                                  ),
+                                  child: detail == null
+                                      ? const SizedBox.shrink(
+                                          key: ValueKey('no-detail'),
+                                        )
+                                      : Text(
+                                          detail,
+                                          key: ValueKey(detail),
+                                          textAlign: TextAlign.center,
+                                          style: _statusStyle(false),
+                                        ),
+                                );
+                              },
+                            ),
+                          ),
+                        if (_phase == Phase.settled) const SizedBox(height: 8),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 400),
+                          child: _buildOverview(idle),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Always reachable except mid-recording/analyzing, so starting
+                  // a new recording never blocks picking a file instead (and
+                  // vice versa) — it doesn't depend on which phase you're in.
+                  if (_phase == Phase.idle || _phase == Phase.settled)
+                    Positioned(
+                      top: 16,
+                      right: 16,
+                      child: _QuietButton(
+                        label: 'upload',
+                        onTap: _pickAndAnalyzeFile,
+                      ),
+                    ),
+                  if (_phase == Phase.settled &&
+                      _scene.notes.any(
+                        (n) => n.confidence < noteConfidenceThreshold,
+                      ))
+                    Positioned(
+                      top: 16,
+                      left: 16,
+                      child: _QuietButton(
+                        label: _scene.showFaintNotes
+                            ? 'hide faint'
+                            : 'show faint',
+                        onTap: () => setState(() {
+                          _scene
+                            ..showFaintNotes = !_scene.showFaintNotes
+                            ..faintToggleStart = _clock.value;
+                        }),
+                      ),
+                    ),
+                  if (_errorMessage != null)
+                    Positioned(
+                      left: 24,
+                      right: 24,
+                      top: size.height * 0.08,
+                      child: Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Palette.error,
+                        ),
+                      ),
+                    ),
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeInOutCubic,
+                    left: 0,
+                    right: 0,
+                    top: idle
+                        ? size.height * 0.70 - 32
+                        : size.height * 0.90 - 32,
+                    height: 64,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        _RecordButton(
+                          phase: _phase,
+                          onTap: switch (_phase) {
+                            Phase.recording => _stopRecording,
+                            Phase.analyzing => null,
+                            _ => _startRecording,
                           },
                         ),
-                      ),
-                    if (_phase == Phase.settled) const SizedBox(height: 8),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 400),
-                      child: _buildOverview(idle),
+                        if (_phase == Phase.settled && _scene.waveform != null)
+                          Positioned(
+                            right: size.width / 2 + 52,
+                            child: _QuietButton(
+                              label: _playingAll && _player.playing
+                                  ? 'pause'
+                                  : 'play',
+                              onTap: _togglePlayAll,
+                            ),
+                          ),
+                        if (_phase == Phase.settled && _scene.notes.isNotEmpty)
+                          Positioned(
+                            left: size.width / 2 + 52,
+                            child: _QuietButton(
+                              label: 'redraw',
+                              onTap: _replay,
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              // Always reachable except mid-recording/analyzing, so starting
-              // a new recording never blocks picking a file instead (and
-              // vice versa) — it doesn't depend on which phase you're in.
-              if (_phase == Phase.idle || _phase == Phase.settled)
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: _QuietButton(label: 'upload', onTap: _pickAndAnalyzeFile),
-                ),
-              if (_errorMessage != null)
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  top: size.height * 0.08,
-                  child: Text(
-                    _errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Palette.error),
                   ),
-                ),
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeInOutCubic,
-                left: 0,
-                right: 0,
-                top: idle ? size.height * 0.70 - 32 : size.height * 0.90 - 32,
-                height: 64,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    _RecordButton(
-                      phase: _phase,
-                      onTap: switch (_phase) {
-                        Phase.recording => _stopRecording,
-                        Phase.analyzing => null,
-                        _ => _startRecording,
-                      },
-                    ),
-                    if (_phase == Phase.settled && _scene.waveform != null)
-                      Positioned(
-                        right: size.width / 2 + 52,
-                        child: _QuietButton(
-                          label: _playingAll && _player.playing ? 'pause' : 'play',
-                          onTap: _togglePlayAll,
-                        ),
-                      ),
-                    if (_phase == Phase.settled && _scene.notes.isNotEmpty)
-                      Positioned(
-                        left: size.width / 2 + 52,
-                        child: _QuietButton(label: 'redraw', onTap: _replay),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -757,11 +844,15 @@ class _RecordButtonState extends State<_RecordButton>
                           shape: BoxShape.circle,
                           color: Palette.paper,
                           border: Border.all(
-                            color: Palette.ink.withValues(alpha: 0.14 + 0.06 * t),
+                            color: Palette.ink.withValues(
+                              alpha: 0.14 + 0.06 * t,
+                            ),
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Palette.accent.withValues(alpha: 0.06 + 0.06 * t),
+                              color: Palette.accent.withValues(
+                                alpha: 0.06 + 0.06 * t,
+                              ),
                               blurRadius: 18 + 10 * t,
                             ),
                           ],
@@ -789,6 +880,8 @@ class _RecordButtonState extends State<_RecordButton>
   }
 }
 
+/// A small pill chip — the app's one button shape, everywhere a quiet,
+/// secondary action is offered (upload, play, redraw, show/hide faint).
 class _QuietButton extends StatelessWidget {
   const _QuietButton({required this.label, required this.onTap});
 
@@ -797,14 +890,42 @@ class _QuietButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextButton(
-      onPressed: onTap,
-      style: TextButton.styleFrom(
-        foregroundColor: Palette.ink.withValues(alpha: 0.55),
-        textStyle: const TextStyle(fontSize: 13, letterSpacing: 0.8),
-        minimumSize: Size(math.max(48, label.length * 9.0), 40),
+    return Material(
+      color: Palette.paper,
+      shape: const StadiumBorder(),
+      elevation: 0,
+      shadowColor: Palette.ink.withValues(alpha: 0.08),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Container(
+          constraints: BoxConstraints(
+            minWidth: math.max(48, label.length * 9.0),
+          ),
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(Shape.pill),
+            boxShadow: [
+              BoxShadow(
+                color: Palette.ink.withValues(alpha: 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              letterSpacing: 0.8,
+              color: Palette.ink.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
       ),
-      child: Text(label),
     );
   }
 }

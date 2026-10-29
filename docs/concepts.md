@@ -131,19 +131,39 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   read and safer to change than threading extra parameters through a
   single do-everything function
 
-## Deciding which note's name to show (`note_prominence.dart`)
+## The mascot and splash screen (`widgets/mascot.dart`, `screens/splash_screen.dart`)
 
-- Why this lives in a separate pure function rather than inline in the
-  painter: `isProminentNote` takes only a `List<Note>` and an index and
-  returns a `bool` — no `Canvas`, no animation state — so it can be unit
-  tested directly (`test/note_prominence_test.dart`), the same reasoning
-  behind `harmonic_color.dart`/`key_color.dart` being separate files
-- The heuristic itself — "the highest note sounding at this moment is
-  the melody" — is a real, commonly used simplification in music
-  software, not a guess invented for this app; it's cheap to compute and
-  right often enough to be useful, which is different from actually
-  identifying a vocal line (that would need source separation, a much
-  bigger ML problem)
+- Reusing the `CustomPainter` + pure-state-mapping pattern for a second,
+  unrelated character: `expressionForPhase` is a plain `Phase ->
+  MascotExpression` function (no `Canvas`, no animation state), unit
+  tested directly (`test/mascot_test.dart`) — the same separation of
+  "what state are we in" from "how do we draw it" used throughout
+  `score_canvas.dart`, and the same reasoning behind keeping
+  `harmonic_color.dart`/`key_color.dart` as their own files
+- The "stadium" shape trick: `RRect.fromRectAndRadius` with a corner
+  radius of half the *shorter* side turns a plain rounded rectangle into
+  a full capsule/pill — no separate "pill" drawing code needed, just the
+  right radius relative to the box (used for both the mascot's body and
+  the `_QuietButton` chips, via the shared `Shape.pill` constant)
+- `AnimationController` as a *bounded*, one-shot alternative to the
+  free-running `Ticker`/clock pattern used everywhere else: the splash
+  needs a fixed-length sequence with a "done" callback (`addStatusListener`,
+  `AnimationStatus.completed`), which `AnimationController` gives for
+  free, rather than hand-rolling an end-time check against the shared
+  clock
+- `PageRouteBuilder` + `FadeTransition` — a custom, minimal screen
+  transition (a plain cross-fade) instead of the platform's default
+  slide, used to move from the splash into the session screen
+- Programmatic audio synthesis (`scripts/generate_splash_chime.py`): a
+  sine wave sampled at 44.1kHz, scaled to 16-bit PCM integers, and
+  wrapped in a WAV header (Python's `wave` module) — enough to generate
+  a short, deterministic sound asset from code instead of sourcing an
+  audio file; a linear fade in/out on each note avoids the audible
+  "click" a hard-edged tone would otherwise have
+- `StadiumBorder` + `Material`/`InkWell` — Flutter's way to get a
+  custom-shaped tappable surface (here, a pill) that still shows the
+  platform's ink-ripple feedback on tap, rather than a plain
+  `GestureDetector` with no visual response
 
 ## Talking to the backend
 
