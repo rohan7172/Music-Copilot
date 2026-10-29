@@ -15,16 +15,39 @@ class KeyColor {
     'B': 11,
   };
 
-  static final _fallback = HSLColor.fromAHSL(1, 260, 0.2, 0.75).toColor();
+  static final _fallback = HSLColor.fromAHSL(1, 260, 0.45, 0.72).toColor();
+  static final _fallbackVivid = HSLColor.fromAHSL(1, 260, 0.6, 0.55).toColor();
+  static final _fallbackDark = HSLColor.fromAHSL(1, 260, 0.4, 0.32).toColor();
 
-  /// A soft, paper-friendly color for [tonic] (e.g. "G", "F#", "Bb"),
-  /// evenly spaced around the color wheel by pitch class so every key gets
-  /// a visually distinct identity. Falls back to a neutral lavender-gray
-  /// for an unrecognised tonic.
-  static Color forTonic(String tonic) {
+  static double? _hueFor(String tonic) {
     final pitchClass = _pitchClasses[tonic];
-    if (pitchClass == null) return _fallback;
-    final hue = pitchClass * 30.0;
-    return HSLColor.fromAHSL(1, hue, 0.45, 0.74).toColor();
+    return pitchClass == null ? null : pitchClass * 30.0;
+  }
+
+  /// A paper-friendly but genuinely saturated color for [tonic] (e.g. "G",
+  /// "F#", "Bb"), evenly spaced around the color wheel by pitch class so
+  /// every key gets a visually distinct identity. Falls back to a neutral
+  /// lavender-gray for an unrecognised tonic.
+  static Color forTonic(String tonic) {
+    final hue = _hueFor(tonic);
+    if (hue == null) return _fallback;
+    return HSLColor.fromAHSL(1, hue, 0.70, 0.70).toColor();
+  }
+
+  /// The same hue and key identity as [forTonic], but bolder — for a
+  /// foreground element (like the waveform) that should read as fully
+  /// contrasting against the softer ambient wash behind it.
+  static Color forTonicVivid(String tonic) {
+    final hue = _hueFor(tonic);
+    if (hue == null) return _fallbackVivid;
+    return HSLColor.fromAHSL(1, hue, 0.82, 0.52).toColor();
+  }
+
+  /// The same hue as [forTonic], darkened for legible text on paper rather
+  /// than plain ink once the key's color has arrived.
+  static Color forTonicDark(String tonic) {
+    final hue = _hueFor(tonic);
+    if (hue == null) return _fallbackDark;
+    return HSLColor.fromAHSL(1, hue, 0.55, 0.30).toColor();
   }
 }

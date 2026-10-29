@@ -65,6 +65,25 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   the analyzing-sweep stroke, but centered and radiating outward; the
   way to paint a soft "glow" that fades to nothing rather than a hard
   circle
+- Same hue, different saturation/lightness (`KeyColor.forTonicVivid`) —
+  a cheap way to get a "bolder version of this same color" for a
+  foreground element (the waveform) without it reading as an unrelated
+  color from the soft ambient wash behind it
+- Alpha alone isn't enough for contrast: a color at 10% opacity over a
+  light background reads as a tinted gray no matter how saturated the
+  color itself is — getting a foreground element to actually "pop"
+  needs the opacity to climb too, not just the hue to change
+- `Curves.easeOutBack` — an easing curve that overshoots past its target
+  before settling back, the standard way to get a "pop in" feel (used
+  for the chord tabs' reveal and, combined with a second timestamp-driven
+  scale bump, their tap feedback)
+- A boolean toggle that *reads* as instant but *animates* as a fade:
+  `Scene.faintToggleStart` records only a timestamp when "show faint
+  notes" flips; the painter derives a smooth 0..1 progress from
+  `now - faintToggleStart` every frame, the same pattern used
+  everywhere else in this file for reveal animations (`settleStart`,
+  `analyzeStart`, `morphStart`) — a toggle doesn't need its own
+  animation controller, just one more timestamp
 - Summed sine waves at different, unrelated frequencies as a cheap way
   to fake "organic" motion — a single `sin(t)` repeats in an obviously
   mechanical loop, but two or three summed together with frequencies
