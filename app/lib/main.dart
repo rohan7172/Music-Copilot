@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/session_screen.dart';
+import 'screens/splash_screen.dart';
 import 'theme.dart';
 
 void main() {
@@ -23,7 +23,7 @@ class MusicCopilotApp extends StatelessWidget {
         scaffoldBackgroundColor: Palette.paper,
         useMaterial3: true,
       ),
-      home: const SessionScreen(),
+      home: const SplashScreen(),
     );
   }
 }

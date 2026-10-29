@@ -161,42 +161,52 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   platform's ink-ripple feedback on tap, rather than a plain
   `GestureDetector` with no visual response
 
-## The wake-up intro and musical lines (`ScorePainter`, `Scene.introStart`)
+## The splash screen, the wake-up intro, and musical lines
 
-- Folding what was a separate splash screen directly into
-  `SessionScreen`'s existing `Scene`/`ScorePainter`, rather than two
-  screens connected by a `Navigator` route: a `CustomPainter`-drawn
-  shape has no identity Flutter can animate across a route change (no
-  Hero-style continuity for canvas drawing), so the only way to make
-  "the line stays on screen and just shifts position" literally true —
-  not simulated — is for it to be the same `Scene`, the same paint call,
-  the whole time. `Scene.introStart` is one more timestamp in the same
-  family as `settleStart`/`analyzeStart`: set once in `initState`, read
-  as `now - introStart` wherever something needs to animate once and
-  then stop (here, the line's vertical position lerping from
-  screen-center to its resting spot, and the mascot's one-time "waking
-  up" grow-and-blink in `mascot.dart`)
 - The waveform's literal amplitude trace is gone entirely, replaced by
-  "musical lines": 1-3 overlapping smooth strands sampled at a handful
-  of points and connected with straight segments (no path-smoothing
-  needed — the strand count is low and the motion is continuous, so the
-  simpler polyline reads just as smoothly as the old quadratic-bezier
-  envelope did). Their *shape* still comes from real audio
-  (`sampleEnvelope` on the decoded `Waveform`, or the live amplitude
-  array while actively recording) — only the rendering changed, not the
-  underlying data
+  "musical lines" (`strokeMusicalLine`, a top-level function in
+  `score_canvas.dart` rather than a method — deliberately, so both
+  `ScorePainter` and the unrelated `splash_screen.dart` can call it
+  without one importing the other's private state): 1-3 overlapping
+  strands, each a handful of sampled points joined with a light
+  quadratic smoothing (`Offset.lerp` through each pair's midpoint, the
+  same technique the deleted `_envelopePath`/`_smoothThrough` used)
+  rather than straight segments — the smoothing is what keeps a strand
+  reading as a flowing curve instead of a faceted polyline, especially
+  once real, somewhat noisy audio data is driving its amplitude
+- `smoothedAmplitude`: averaging a handful of nearby envelope samples
+  instead of reading one raw point. Live microphone amplitude arrives in
+  coarse, un-smoothed 40ms chunks (see `_startRecording`'s
+  `onAmplitudeChanged` listener) — sampling it directly made the line
+  visibly jittery; a small moving-average window fixes that without
+  needing to change how the amplitude itself is captured
 - Summed sines per strand, each at a different, unrelated frequency and
   phase (the same "organic, never-quite-looping" trick already used for
   the ambient drift) — what makes three strands read as independent
   flowing lines rather than one line traced three times
-- `chordColorAt` (`test/chord_color_test.dart`): a pure function that
-  answers "what color is the music at this moment in time," generalizing
-  the per-note chord lookup `_paintNotes` already did into something
-  reusable along a continuous timeline. The lines are split into
-  same-color runs at every chord boundary and colored by
-  `HarmonicColor.forRoman` for that run — genuinely data-driven, not a
-  decorative fixed palette, matching the app's existing stance that
-  color should mean something musically
+- A fixed `LineColors` palette (`theme.dart`) rather than coloring the
+  lines by detected harmony: an earlier version of this tried tying the
+  color to `HarmonicColor`/the chord timeline, genuinely data-driven,
+  but it was reverted in favor of matching the reference board's fixed
+  purple/green/orange directly — a reminder that "more meaningfully
+  data-driven" isn't automatically "better" if it drifts from the
+  agreed visual reference
+- The splash screen (`screens/splash_screen.dart`) and the home screen's
+  returning line (`ScorePainter._introReveal`, driven by
+  `Scene.introStart`) share the same `reveal` parameter on
+  `strokeMusicalLine`: a 0..1 fraction that clips the strand to a
+  growing prefix from its start — "grows in from one side" needs no
+  special path-building, just stop sampling past the revealed x
+  position. The splash plays this forward then backward (`Curves
+  .easeOutCubic` then `easeInCubic`, the literal reverse of growing in)
+  so the screen is blank again right before the cut to the home screen,
+  making a plain screen transition imperceptible instead of needing the
+  line's identity to somehow survive the `Navigator` change
+- `Scene.introStart` — one more timestamp in the same family as
+  `settleStart`/`analyzeStart`, set once in `SessionScreen.initState`
+  and read as `now - introStart` wherever the one-time "waking up"
+  sequence needs to animate and then stop (the mascot's grow-and-blink
+  in `mascot.dart`, then the line's `reveal` picking up right after)
 
 ## Talking to the backend
 

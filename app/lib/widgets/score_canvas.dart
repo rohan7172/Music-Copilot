@@ -26,9 +26,10 @@ const canvasMargin = 52.0;
 class Scene {
   Phase phase = Phase.idle;
 
-  /// Set once, the first time the screen appears: drives the one-time
-  /// "waking up" intro (the line settling into position, the mascot
-  /// appearing) — see `ScorePainter._lineBaselineY`/`Mascot`'s wake-in.
+  /// Set once, when the home screen first appears (right after the splash
+  /// hands off to it): drives the one-time "waking up" intro — the mascot
+  /// appearing, then the line growing back in to wait for the next
+  /// recording — see `Mascot`'s wake-in and `ScorePainter._introReveal`.
   /// Left null and the screen just opens already settled, no intro.
   double? introStart;
 
@@ -76,12 +77,10 @@ const _morphTime = 0.7;
 const _flightTime = 0.9;
 const _liveWindow = 6.0;
 
-/// How long the one-time wake-up intro runs, and when its three ripples
-/// land along it — kept in sync with `assets/sounds/chime.wav` (see
-/// `scripts/generate_splash_chime.py`).
-const introDuration = 1.3;
-const _introNoteOnsets = [0.0, 0.27, 0.54];
-const _introBumpDuration = 0.5;
+/// Roughly how long the home screen's one-time wake-up intro takes
+/// (mascot appearing, then the line growing back in) — used to know when
+/// a tap should be treated as "skip the intro" rather than a normal tap.
+const introDuration = 1.6;
 
 double settleStagger(int noteCount) =>
     math.min(0.11, 1.6 / math.max(1, noteCount));
@@ -94,18 +93,6 @@ double chordsAppear(Scene scene) =>
 
 const _chordStagger = 0.08;
 const _chordDraw = 0.5;
-
-/// The harmonic-tension color of whichever chord covers [t] (seconds), or
-/// the neutral color if none does — the same per-moment chord lookup
-/// `_paintNotes` already does per note, generalized to any point in time so
-/// the musical lines can be colored by what's actually sounding there. Pure
-/// and unit-tested (`test/chord_color_test.dart`).
-Color chordColorAt(List<Chord> chords, double t) {
-  for (final c in chords) {
-    if (t >= c.startTime && t <= c.endTime) return HarmonicColor.forRoman(c.roman);
-  }
-  return HarmonicColor.neutral;
-}
 
 /// Where things sit on screen. Shared by the painter and the screen's hit
 /// testing.
@@ -192,6 +179,93 @@ const _ribbonFreq = [1.5, 2.0, 1.2];
 const _ribbonSpeed = [0.55, 0.45, 0.65];
 const _ribbonOffset = [-9.0, 0.0, 9.0];
 const _ribbonAmpScale = [0.75, 1.0, 0.6];
+
+/// The vertical offset of musical-line strand [index] at position [f] (0..1
+/// along its own length), [amp] pixels of amplitude budget. Two summed sines
+/// at unrelated frequencies per strand (the same "organic, never-quite-
+/// looping" trick as the ambient drift) give each strand independent,
+/// continuous motion.
+double ribbonWobbleY(int index, double f, double now, double baselineY, double amp) {
+  final wobble =
+      math.sin(
+        f * 2 * math.pi * _ribbonFreq[index] + now * _ribbonSpeed[index] + _ribbonPhase[index],
+      ) +
+      0.4 *
+          math.sin(
+            f * 2 * math.pi * _ribbonFreq[index] * 1.7 -
+                now * _ribbonSpeed[index] * 0.6 +
+                _ribbonPhase[index] * 1.3,
+          );
+  return baselineY + _ribbonOffset[index] + wobble * amp * _ribbonAmpScale[index];
+}
+
+/// A lightly smoothed envelope sample at [fraction] (0..1): averages a
+/// handful of points in a small window around it rather than one raw
+/// sample, so a noisy input (like live microphone amplitude, taken in
+/// coarse 40ms chunks with no smoothing of its own) still drives a visually
+/// smooth line instead of a jittery one.
+double smoothedAmplitude(List<double> envelope, double fraction) {
+  if (envelope.isEmpty) return 0;
+  const half = 0.015;
+  const samples = 5;
+  var sum = 0.0;
+  for (var i = 0; i < samples; i++) {
+    final offset = (i / (samples - 1) - 0.5) * 2 * half;
+    sum += sampleEnvelope(envelope, (fraction + offset).clamp(0.0, 1.0));
+  }
+  return sum / samples;
+}
+
+/// Strokes one flowing "musical line" strand — the shared visual language
+/// for recorded audio throughout the app (the idle/recording line, the
+/// settled lines, and the splash screen's line alike, see
+/// `screens/splash_screen.dart`). [index] selects which of the 3
+/// phase/frequency/offset variants this strand uses. [amplitudeAt] gives
+/// real loudness (0..1-ish) at a 0..1 fraction across the strand. [reveal]
+/// (0..1) clips the strand to a growing prefix from [x0] — the "grows in
+/// from one side" animation shared by the splash and the line's return to
+/// the home screen. Points are connected with a light quadratic smoothing
+/// (not straight segments) so the strand reads as a smooth curve even
+/// where the underlying amplitude data has some noise in it.
+void strokeMusicalLine(
+  Canvas canvas, {
+  required int index,
+  required double x0,
+  required double x1,
+  required double baselineY,
+  required double now,
+  required double Function(double f) amplitudeAt,
+  required Color color,
+  double reveal = 1.0,
+  ui.Shader? shader,
+}) {
+  if (reveal <= 0 || x1 <= x0) return;
+  final visibleX1 = x0 + (x1 - x0) * reveal.clamp(0.0, 1.0);
+  const samples = 90;
+  final points = <Offset>[];
+  for (var i = 0; i <= samples; i++) {
+    final f = i / samples;
+    final x = x0 + (x1 - x0) * f;
+    if (x > visibleX1 + 0.01) break;
+    final amp = amplitudeAt(f) * 9.0;
+    points.add(Offset(x, ribbonWobbleY(index, f, now, baselineY, amp)));
+  }
+  if (points.length < 2) return;
+  final path = Path()..moveTo(points.first.dx, points.first.dy);
+  for (var i = 1; i < points.length; i++) {
+    final mid = Offset.lerp(points[i - 1], points[i], 0.5)!;
+    path.quadraticBezierTo(points[i - 1].dx, points[i - 1].dy, mid.dx, mid.dy);
+  }
+  path.lineTo(points.last.dx, points.last.dy);
+  final paint = Paint()
+    ..color = color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.8
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+  if (shader != null) paint.shader = shader;
+  canvas.drawPath(path, paint);
+}
 
 class ScorePainter extends CustomPainter {
   ScorePainter(this.scene, this.clock) : super(repaint: clock);
@@ -289,118 +363,44 @@ class ScorePainter extends CustomPainter {
   // --- Musical lines ----------------------------------------------------------
   //
   // The one representation of recorded audio, in every phase: up to three
-  // overlapping flowing strands rather than a literal amplitude trace.
-  // Their *shape* is still driven by the real recording (loudness widens
-  // the wobble); their *color* is whichever chord covers that moment,
-  // falling back to the single accent lavender before any chord is known.
+  // overlapping flowing strands (see `strokeMusicalLine`, a top-level
+  // function shared with the splash screen) rather than a literal amplitude
+  // trace. Their *shape* is still driven by the real recording (loudness
+  // widens the wobble); their *color* is a fixed three-hue palette
+  // (`LineColors`), not derived from the detected harmony.
 
-  /// Where the lines sit vertically: lerps from screen-center to the
-  /// resting position during the one-time wake intro, then stays put —
-  /// the literal "the line stays on screen and shifts position" the intro
-  /// is built around. Settles immediately once there's anything to show
-  /// (recording/analyzing/settled always use the resting position).
-  double _lineBaselineY(SceneLayout l, double now) {
+  static const _introLineRevealStart = 1.1;
+  static const _introLineRevealDuration = 0.5;
+
+  /// 0 before the home screen's line has started growing back in, 1 once
+  /// fully grown — timed to land just as the mascot's wake-in eyes finish
+  /// opening (see `Mascot`). 1 immediately when there's no intro to wait
+  /// for (e.g. after the intro has already played once).
+  double _introReveal(double now) {
     final introStart = scene.introStart;
-    if (introStart == null || scene.phase != Phase.idle) return l.waveY;
-    final t = ((now - introStart) / introDuration).clamp(0.0, 1.0);
-    return ui.lerpDouble(
-      l.size.height * 0.5,
-      l.waveY,
-      Curves.easeInOutCubic.transform(t),
-    )!;
+    if (introStart == null) return 1.0;
+    final t = ((now - introStart - _introLineRevealStart) / _introLineRevealDuration)
+        .clamp(0.0, 1.0);
+    return Curves.easeOutCubic.transform(t);
   }
 
-  /// Extra wobble from the intro's three-note chime ripple, at strand
-  /// position [f] (0..1 along the full line) — zero once the intro window
-  /// has passed, or outside idle.
-  double _introBump(double now, double f) {
-    final introStart = scene.introStart;
-    if (introStart == null || scene.phase != Phase.idle) return 0;
-    final elapsed = now - introStart;
-    var bump = 0.0;
-    for (var j = 0; j < _introNoteOnsets.length; j++) {
-      final q = ((elapsed - _introNoteOnsets[j]) / _introBumpDuration).clamp(
-        0.0,
-        1.0,
-      );
-      if (q <= 0 || q >= 1) continue;
-      final rise = math.sin(math.pi * q);
-      final anchor = (j + 1) / (_introNoteOnsets.length + 1);
-      final dist = f - anchor;
-      const sigma = 0.12;
-      bump += rise * math.exp(-(dist * dist) / (2 * sigma * sigma));
-    }
-    return bump;
-  }
-
-  double _ribbonY(int index, double f, double now, double baselineY, double amp) {
-    final wobble =
-        math.sin(
-          f * 2 * math.pi * _ribbonFreq[index] +
-              now * _ribbonSpeed[index] +
-              _ribbonPhase[index],
-        ) +
-        0.4 *
-            math.sin(
-              f * 2 * math.pi * _ribbonFreq[index] * 1.7 -
-                  now * _ribbonSpeed[index] * 0.6 +
-                  _ribbonPhase[index] * 1.3,
-            );
-    return baselineY + _ribbonOffset[index] + wobble * amp * _ribbonAmpScale[index];
-  }
-
-  /// Strokes one strand from [x0] to [x1] (pixels); [ampAt] gives real
-  /// loudness (0..1-ish) at a 0..1 fraction across the strand, [introBumpAt]
-  /// optionally adds the wake-intro ripple on the same fraction.
-  void _strokeRibbon(
-    Canvas canvas,
-    int index,
-    double x0,
-    double x1,
-    double baselineY,
-    double now,
-    double Function(double f) ampAt,
-    Color color, {
-    double Function(double f)? introBumpAt,
-    ui.Shader? shader,
-  }) {
-    if (x1 <= x0) return;
-    const samples = 48;
-    final path = Path();
-    for (var i = 0; i <= samples; i++) {
-      final f = i / samples;
-      final x = x0 + (x1 - x0) * f;
-      final amp = ampAt(f) * 9.0 + (introBumpAt?.call(f) ?? 0) * 15.0;
-      final y = _ribbonY(index, f, now, baselineY, amp);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    final paint = _strokePaint(color)..strokeWidth = 1.8;
-    if (shader != null) paint.shader = shader;
-    canvas.drawPath(path, paint);
-  }
-
-  /// The idle line: flat and barely-there at rest (nothing recorded yet),
-  /// with only the wake-intro's ripple giving it any shape — the same line
-  /// the splash intro drew, now continuing straight into this resting spot.
+  /// The idle line: barely-there at rest (nothing recorded yet), growing
+  /// back in from the left once the wake intro reaches it, then just
+  /// sitting there, waiting — the same grow-in the splash used, continued
+  /// here for the line's return.
   void _paintIdleLines(Canvas canvas, SceneLayout l, double now) {
-    final baseline = _lineBaselineY(l, now);
-    final introStart = scene.introStart;
-    final introActive = introStart != null && now - introStart < introDuration;
-    final alpha = introActive ? 0.6 : 0.3;
-    _strokeRibbon(
+    final reveal = _introReveal(now);
+    if (reveal <= 0) return;
+    strokeMusicalLine(
       canvas,
-      1,
-      l.left,
-      l.right,
-      baseline,
-      now,
-      (f) => 0,
-      _accent.withValues(alpha: alpha),
-      introBumpAt: (f) => _introBump(now, f),
+      index: 1,
+      x0: l.left,
+      x1: l.right,
+      baselineY: l.waveY,
+      now: now,
+      amplitudeAt: (f) => 0,
+      color: LineColors.purple.withValues(alpha: 0.3),
+      reveal: reveal,
     );
   }
 
@@ -408,7 +408,7 @@ class ScorePainter extends CustomPainter {
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
   /// The single line while actively recording (and fading out during the
-  /// morph into the recorded/colored lines) — one lavender strand whose
+  /// morph into the settled, 3-strand lines) — one lavender strand whose
   /// wobble follows the live input level, same as the reference's
   /// "Listening" screen.
   void _paintLiveLines(
@@ -419,33 +419,31 @@ class ScorePainter extends CustomPainter {
     double? spanOverride,
   }) {
     final span = spanOverride ?? _liveSpan(l);
-    final baseline = _lineBaselineY(l, now);
     // The unfilled remainder of the line, still waiting for sound.
     canvas.drawLine(
-      Offset(l.left + span, baseline),
-      Offset(l.right, baseline),
+      Offset(l.left + span, l.waveY),
+      Offset(l.right, l.waveY),
       Paint()
         ..color = _ink.withValues(alpha: 0.08 * opacity)
         ..strokeWidth = 1,
     );
     if (span <= 0) return;
-    double ampAt(double f) => scene.live.isEmpty ? 0.0 : sampleEnvelope(scene.live, f);
-    _strokeRibbon(
+    strokeMusicalLine(
       canvas,
-      1,
-      l.left,
-      l.left + span,
-      baseline,
-      now,
-      ampAt,
-      _accent.withValues(alpha: 0.75 * opacity),
+      index: 1,
+      x0: l.left,
+      x1: l.left + span,
+      baselineY: l.waveY,
+      now: now,
+      amplitudeAt: (f) => smoothedAmplitude(scene.live, f),
+      color: LineColors.purple.withValues(alpha: 0.75 * opacity),
     );
     if (scene.phase == Phase.recording) {
       // The pen tip.
       canvas.drawCircle(
-        Offset(l.left + span, baseline),
+        Offset(l.left + span, l.waveY),
         3,
-        Paint()..color = _accent.withValues(alpha: 0.8),
+        Paint()..color = LineColors.purple.withValues(alpha: 0.8),
       );
     }
   }
@@ -488,11 +486,10 @@ class ScorePainter extends CustomPainter {
     }
   }
 
-  /// The colored lines once a real recording exists: 1 strand before any
-  /// chord is known (analyzing), 3 once chords have landed — each segment
-  /// of the timeline colored by whichever chord covers it
-  /// ([chordColorAt]), an "analyzing" sweep highlight riding across all of
-  /// them while the backend is still thinking.
+  /// The lines once a real recording exists: 1 strand before any chord is
+  /// known (analyzing), 3 fixed-colored strands (`LineColors`) once
+  /// settled — an "analyzing" sweep highlight rides across them while the
+  /// backend is still thinking.
   void _paintRecordedLines(
     Canvas canvas,
     SceneLayout l,
@@ -501,65 +498,32 @@ class ScorePainter extends CustomPainter {
     double span,
     double morph,
   ) {
-    final baseline = _lineBaselineY(l, now);
     final analyzing = scene.phase == Phase.analyzing;
     final breathe = analyzing ? 1 + 0.04 * math.sin(now * 2.2) : 1.0;
-    final ribbonCount = scene.phase == Phase.settled && scene.chords.isNotEmpty ? 3 : 1;
+    final ribbonCount = scene.phase == Phase.settled ? 3 : 1;
     final indices = ribbonCount == 1 ? const [1] : const [0, 1, 2];
     final shader = analyzing ? _sweepShader(l, now, morph) : null;
 
-    double ampAt(double timeFraction) =>
-        sampleEnvelope(waveform.envelope, timeFraction) * breathe;
+    final x1 = l.left + span;
+    // `f` below is a fraction across the drawn span [l.left, x1], which
+    // during the live->recorded morph is narrower than the full duration —
+    // scale it back to a true time fraction before sampling the envelope.
+    final spanTimeFraction = l.width == 0 ? 0.0 : span / l.width;
+    double ampAt(double f) => smoothedAmplitude(waveform.envelope, f * spanTimeFraction) * breathe;
 
-    for (final segment in _lineColorSegments(l)) {
-      final (segStart, segEnd, color) = segment;
-      final x0 = l.xForTime(segStart);
-      final x1 = math.min(l.xForTime(segEnd), l.left + span);
-      if (x1 <= x0) continue;
-      final segColor = color.withValues(alpha: morph);
-      for (final k in indices) {
-        _strokeRibbon(
-          canvas,
-          k,
-          x0,
-          x1,
-          baseline,
-          now,
-          (f) {
-            final t = segStart + (segEnd - segStart) * f;
-            return ampAt(t / l.duration);
-          },
-          segColor,
-          shader: shader,
-        );
-      }
+    for (final k in indices) {
+      strokeMusicalLine(
+        canvas,
+        index: k,
+        x0: l.left,
+        x1: x1,
+        baselineY: l.waveY,
+        now: now,
+        amplitudeAt: ampAt,
+        color: LineColors.all[k].withValues(alpha: morph),
+        shader: shader,
+      );
     }
-  }
-
-  /// The timeline split into runs that share one color: a detected chord's
-  /// span gets its harmonic-tension color, any gap (before/between/after
-  /// chords, or no chords at all yet) gets the single accent lavender.
-  List<(double, double, Color)> _lineColorSegments(SceneLayout l) {
-    if (scene.phase != Phase.settled || scene.chords.isEmpty) {
-      return [(0.0, l.duration, _accent)];
-    }
-    final sorted = [...scene.chords]
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
-    final bounds = <double>{0.0, l.duration};
-    for (final c in sorted) {
-      bounds.add(c.startTime.clamp(0.0, l.duration));
-      bounds.add(c.endTime.clamp(0.0, l.duration));
-    }
-    final sortedBounds = bounds.toList()..sort();
-    final segments = <(double, double, Color)>[];
-    for (var i = 0; i < sortedBounds.length - 1; i++) {
-      final start = sortedBounds[i];
-      final end = sortedBounds[i + 1];
-      if (end <= start) continue;
-      final color = chordColorAt(sorted, (start + end) / 2);
-      segments.add((start, end, color));
-    }
-    return segments;
   }
 
   ui.Shader _sweepShader(SceneLayout l, double now, double morph) {

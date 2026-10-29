@@ -188,7 +188,7 @@ class MascotPainter extends CustomPainter {
   /// not a facial feature, so it's static (no expression changes it).
   void _paintStand(Canvas canvas, double bodyW, double bodyH) {
     final standWidth = bodyW * 1.15;
-    final gap = bodyH * 0.07;
+    final gap = bodyH * 0.015;
     final radius = standWidth / 2;
     final rect = Rect.fromCenter(
       center: Offset(0, bodyH / 2 + gap),

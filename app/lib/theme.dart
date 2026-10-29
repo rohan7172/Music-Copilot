@@ -37,3 +37,14 @@ class Shape {
 class Layout {
   static const maxContentWidth = 480.0;
 }
+
+/// Fixed colors for the musical lines — three named hues, not derived from
+/// the detected harmony. (A version of this app tried coloring the lines by
+/// harmonic tension; reverted in favor of matching the reference board's
+/// fixed purple/green/orange directly, which read simpler and clearer.)
+class LineColors {
+  static const purple = Palette.accent;
+  static const green = Color(0xFF7FB88A);
+  static const orange = Color(0xFFDB9B6C);
+  static const all = [purple, green, orange];
+}

@@ -34,7 +34,6 @@ class _SessionScreenState extends State<SessionScreen>
     with SingleTickerProviderStateMixin {
   final AudioRecorder _recorder = AudioRecorder();
   AudioPlayer _player = AudioPlayer();
-  final AudioPlayer _introPlayer = AudioPlayer();
   StreamSubscription<bool>? _playingSub;
   final ApiService _apiService = ApiService();
   final Scene _scene = Scene();
@@ -72,21 +71,11 @@ class _SessionScreenState extends State<SessionScreen>
       _clock.value = elapsed.inMicroseconds / 1e6;
     })..start();
     _watchPlayer();
-    // The one-time "waking up" intro: the line settles into position and
-    // the mascot appears, timed to a short chime — see
-    // ScorePainter._lineBaselineY and Mascot's wake-in.
+    // The one-time "waking up" intro: the mascot appears, then the line
+    // grows back in to wait for the next recording — see Mascot's wake-in
+    // and ScorePainter._introReveal. The splash screen (shown before this
+    // one) already played the chime; nothing to play again here.
     _scene.introStart = _clock.value;
-    unawaited(_playIntroChime());
-  }
-
-  Future<void> _playIntroChime() async {
-    try {
-      await _introPlayer.setAsset('assets/sounds/chime.wav');
-      await _introPlayer.play();
-    } catch (e) {
-      // The intro still works without sound.
-      debugPrint('Could not play intro chime: $e');
-    }
   }
 
   @override
@@ -96,7 +85,6 @@ class _SessionScreenState extends State<SessionScreen>
     _recorder.dispose();
     _playingSub?.cancel();
     _player.dispose();
-    _introPlayer.dispose();
     _clock.dispose();
     super.dispose();
   }
@@ -655,7 +643,7 @@ class _SessionScreenState extends State<SessionScreen>
                   ? (size.width - mascotSize) / 2
                   : canvasMargin - nonIdleMascotSize - mascotKeyGap;
               final mascotTop = idle
-                  ? statusTop - mascotSize - 16
+                  ? statusTop - mascotSize - 4
                   : size.height * 0.06 - (nonIdleMascotSize - 17) / 2;
               return Stack(
                 children: [
