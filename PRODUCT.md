@@ -56,6 +56,13 @@ for the user to interpret from raw theory labels.
   apply even where the visual language itself departs from native
   idiom; "adaptive" above records the two-native-platform target, not
   genuine per-OS design adaptation.
+- Primarily a mobile app, but also intended to run as a desktop app
+  (macOS/Windows/Linux scaffolding already exists from `flutter
+  create`; not yet built/packaged for distribution, just not ruled
+  out). Screens must therefore respond to window size, not assume a
+  phone viewport: content centers at a phone-proportioned max width
+  (`Layout.maxContentWidth` in `app/lib/theme.dart`) on a wide window
+  rather than stretching edge-to-edge.
 - Current implementation: live recording + file upload, Basic Pitch
   note recognition, rule-based chord/key detection (major/minor only —
   no modal detection yet), rule-based plain-language explanations, a
