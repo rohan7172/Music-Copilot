@@ -618,10 +618,20 @@ class _SessionScreenState extends State<SessionScreen>
               };
               // The mascot is a large, calm presence at rest, centered where
               // the waveform will grow from. The moment there's a task
-              // underway it recedes to a small presence at the very top —
-              // clear of the waveform/pitch-lane area, never overlapping it.
-              final mascotSize = idle ? 132.0 : 48.0;
-              final mascotTop = idle ? statusTop - mascotSize - 16 : 14.0;
+              // underway it recedes to a small icon paired tightly against
+              // the "KEY" label's own left margin and vertical center (see
+              // ScorePainter._paintKey) — a deliberate small gap, rather
+              // than floating independently and reading as two unrelated
+              // elements that happen to share the top of the screen.
+              const nonIdleMascotSize = 32.0;
+              const mascotKeyGap = 8.0;
+              final mascotSize = idle ? 132.0 : nonIdleMascotSize;
+              final mascotLeft = idle
+                  ? (size.width - mascotSize) / 2
+                  : canvasMargin - nonIdleMascotSize - mascotKeyGap;
+              final mascotTop = idle
+                  ? statusTop - mascotSize - 16
+                  : size.height * 0.06 - (nonIdleMascotSize - 17) / 2;
               return Stack(
                 children: [
                   Positioned.fill(
@@ -634,9 +644,9 @@ class _SessionScreenState extends State<SessionScreen>
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 700),
                     curve: Curves.easeInOutCubic,
-                    left: 0,
-                    right: 0,
+                    left: mascotLeft,
                     top: mascotTop,
+                    width: mascotSize,
                     child: Center(
                       child: Mascot(
                         scene: _scene,

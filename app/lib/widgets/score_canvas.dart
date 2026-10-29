@@ -15,6 +15,11 @@ import '../theme.dart';
 
 enum Phase { idle, recording, analyzing, settled }
 
+/// The canvas's left margin — shared with `SessionScreen` so the mascot can
+/// anchor itself tight against the "KEY" label drawn at this same margin,
+/// instead of guessing a matching offset independently.
+const canvasMargin = 52.0;
+
 /// Everything the canvas draws. Owned and mutated by the session screen; the
 /// painter only reads it. All animation is derived from timestamps on the
 /// shared clock (seconds), so any phase can be replayed by resetting a time.
@@ -103,7 +108,7 @@ class SceneLayout {
   }
 
   // Left margin leaves room for the pitch axis.
-  double get left => 52;
+  double get left => canvasMargin;
   double get right => size.width - 28;
   double get width => right - left;
   double get waveY => size.height * 0.70;
@@ -123,10 +128,10 @@ class SceneLayout {
   /// A small pill centered on the chord's time-midpoint — a fixed-size tab,
   /// not a bar stretched across its duration (which read as a stray line).
   Rect chordRect(Chord c) => Rect.fromCenter(
-        center: Offset(xForTime((c.startTime + c.endTime) / 2), chordY),
-        width: chordTabWidth,
-        height: chordHeight,
-      );
+    center: Offset(xForTime((c.startTime + c.endTime) / 2), chordY),
+    width: chordTabWidth,
+    height: chordHeight,
+  );
 
   double get duration => scene.waveform?.duration ?? 1;
 
@@ -142,9 +147,9 @@ class SceneLayout {
 
   /// Point on the waveform's upper edge where a note begins.
   Offset origin(Note n) => Offset(
-        xForTime(n.startTime),
-        waveY - (scene.waveform?.at(n.startTime) ?? 0) * waveAmp,
-      );
+    xForTime(n.startTime),
+    waveY - (scene.waveform?.at(n.startTime) ?? 0) * waveAmp,
+  );
 
   /// Resting place of a note's head in the pitch lane.
   Offset target(Note n) => Offset(xForTime(n.startTime), yForMidi(n.midiPitch));
@@ -204,12 +209,20 @@ class ScorePainter extends CustomPainter {
 
     // The ambient drift: always present once settled, low and slow, its
     // center meandering so it never looks mechanical or like it's looping.
-    final driftCenter = center +
+    final driftCenter =
+        center +
         Offset(
-          math.sin(t * 0.07) * l.size.width * 0.15 + math.sin(t * 0.031) * l.size.width * 0.08,
-          math.cos(t * 0.05) * l.size.height * 0.12 + math.cos(t * 0.043) * l.size.height * 0.07,
+          math.sin(t * 0.07) * l.size.width * 0.15 +
+              math.sin(t * 0.031) * l.size.width * 0.08,
+          math.cos(t * 0.05) * l.size.height * 0.12 +
+              math.cos(t * 0.043) * l.size.height * 0.07,
         );
-    _paintGlow(canvas, driftCenter, diagonal * 0.4, color.withValues(alpha: 0.1));
+    _paintGlow(
+      canvas,
+      driftCenter,
+      diagonal * 0.4,
+      color.withValues(alpha: 0.1),
+    );
   }
 
   /// 0 before settling, rising to 1 over the same span as the ambient
@@ -217,7 +230,11 @@ class ScorePainter extends CustomPainter {
   /// bold color.
   double _waveformColorT(double now) {
     final settleStart = scene.settleStart;
-    if (scene.phase != Phase.settled || scene.key == null || settleStart == null) return 0;
+    if (scene.phase != Phase.settled ||
+        scene.key == null ||
+        settleStart == null) {
+      return 0;
+    }
     return ((now - settleStart) / _pulseDuration).clamp(0.0, 1.0);
   }
 
@@ -234,7 +251,10 @@ class ScorePainter extends CustomPainter {
   void _paintGlow(Canvas canvas, Offset center, double radius, Color color) {
     if (radius <= 0 || color.a <= 0) return;
     final paint = Paint()
-      ..shader = ui.Gradient.radial(center, radius, [color, color.withValues(alpha: 0)]);
+      ..shader = ui.Gradient.radial(center, radius, [
+        color,
+        color.withValues(alpha: 0),
+      ]);
     canvas.drawCircle(center, radius, paint);
   }
 
@@ -253,7 +273,12 @@ class ScorePainter extends CustomPainter {
   double _liveSpan(SceneLayout l) =>
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
-  void _paintLive(Canvas canvas, SceneLayout l, double opacity, {double? spanOverride}) {
+  void _paintLive(
+    Canvas canvas,
+    SceneLayout l,
+    double opacity, {
+    double? spanOverride,
+  }) {
     final span = spanOverride ?? _liveSpan(l);
     // The unfilled remainder of the line, still waiting for sound.
     canvas.drawLine(
@@ -264,13 +289,28 @@ class ScorePainter extends CustomPainter {
         ..strokeWidth = 1,
     );
     if (scene.live.length < 2) return;
-    final path = _envelopePath(scene.live, 0, 1, l.left, l.left + span, l.waveY, l.waveAmp);
-    canvas.drawPath(path, Paint()..color = _ink.withValues(alpha: 0.10 * opacity));
+    final path = _envelopePath(
+      scene.live,
+      0,
+      1,
+      l.left,
+      l.left + span,
+      l.waveY,
+      l.waveAmp,
+    );
+    canvas.drawPath(
+      path,
+      Paint()..color = _ink.withValues(alpha: 0.10 * opacity),
+    );
     canvas.drawPath(path, _strokePaint(_ink.withValues(alpha: 0.55 * opacity)));
     if (scene.phase == Phase.recording) {
       // The pen tip.
       final tip = Offset(l.left + span, l.waveY);
-      canvas.drawCircle(tip, 3, Paint()..color = _accent.withValues(alpha: 0.8));
+      canvas.drawCircle(
+        tip,
+        3,
+        Paint()..color = _accent.withValues(alpha: 0.8),
+      );
     }
   }
 
@@ -283,24 +323,37 @@ class ScorePainter extends CustomPainter {
       return;
     }
 
-    final morph = Curves.easeInOutCubic
-        .transform(((now - (scene.morphStart ?? now)) / _morphTime).clamp(0.0, 1.0));
+    final morph = Curves.easeInOutCubic.transform(
+      ((now - (scene.morphStart ?? now)) / _morphTime).clamp(0.0, 1.0),
+    );
     final span = ui.lerpDouble(_liveSpan(l), l.width, morph)!;
     if (morph < 1) _paintLive(canvas, l, 1 - morph, spanOverride: span);
 
     // While analyzing, the waveform breathes and a reading light sweeps it.
     final analyzing = scene.phase == Phase.analyzing;
     final amp = l.waveAmp * (analyzing ? 1 + 0.04 * math.sin(now * 2.2) : 1);
-    final path = _envelopePath(waveform.envelope, 0, 1, l.left, l.left + span, l.waveY, amp);
+    final path = _envelopePath(
+      waveform.envelope,
+      0,
+      1,
+      l.left,
+      l.left + span,
+      l.waveY,
+      amp,
+    );
     // As the waveform's color arrives, it also grows bolder — a faint ink
     // wash becomes a solid, fully-saturated ribbon, not just a tinted gray.
     final colorT = _waveformColorT(now);
     final waveColor = _waveformBaseColor(now, colorT);
     final fillAlpha = ui.lerpDouble(0.10, 0.4, colorT)!;
     final strokeAlpha = ui.lerpDouble(0.55, 0.95, colorT)!;
-    canvas.drawPath(path, Paint()..color = waveColor.withValues(alpha: fillAlpha * morph));
-    final stroke = _strokePaint(waveColor.withValues(alpha: strokeAlpha * morph))
-      ..strokeWidth = ui.lerpDouble(1, 1.6, colorT)!;
+    canvas.drawPath(
+      path,
+      Paint()..color = waveColor.withValues(alpha: fillAlpha * morph),
+    );
+    final stroke = _strokePaint(
+      waveColor.withValues(alpha: strokeAlpha * morph),
+    )..strokeWidth = ui.lerpDouble(1, 1.6, colorT)!;
     if (analyzing) {
       final sweep = ((now - (scene.analyzeStart ?? now)) % 1.8) / 1.8;
       final x = l.left + sweep * l.width;
@@ -356,7 +409,10 @@ class ScorePainter extends CustomPainter {
       pitchNames.putIfAbsent(note.midiPitch, () => note.pitch);
       final p = ((now - start - i * stagger) / _flightTime).clamp(0.0, 1.0);
       final a = ((p - 0.7) / 0.3).clamp(0.0, 1.0);
-      arrival[note.midiPitch] = math.max(arrival[note.midiPitch] ?? 0, a * faintVis);
+      arrival[note.midiPitch] = math.max(
+        arrival[note.midiPitch] ?? 0,
+        a * faintVis,
+      );
     }
     pitchNames.forEach((midi, pitchName) {
       final a = arrival[midi] ?? 0;
@@ -369,7 +425,12 @@ class ScorePainter extends CustomPainter {
 
   /// Note name with its octave rendered smaller and dropped, for a rough
   /// subscript (e.g. "A#" then a smaller "4").
-  void _paintAxisLabel(Canvas canvas, double y, String pitchName, double alpha) {
+  void _paintAxisLabel(
+    Canvas canvas,
+    double y,
+    String pitchName,
+    double alpha,
+  ) {
     final match = _pitchNameRe.firstMatch(pitchName);
     final letter = match?.group(1) ?? pitchName;
     final octave = match?.group(2) ?? '';
@@ -388,7 +449,10 @@ class ScorePainter extends CustomPainter {
           if (octave.isNotEmpty)
             TextSpan(
               text: octave,
-              style: TextStyle(fontSize: 8, color: _ink.withValues(alpha: 0.45 * alpha)),
+              style: TextStyle(
+                fontSize: 8,
+                color: _ink.withValues(alpha: 0.45 * alpha),
+              ),
             ),
         ],
       ),
@@ -404,14 +468,20 @@ class ScorePainter extends CustomPainter {
     final playhead = scene.playhead;
     for (var j = 0; j < scene.chords.length; j++) {
       final chord = scene.chords[j];
-      final q = ((now - start - j * _chordStagger) / _chordDraw).clamp(0.0, 1.0);
+      final q = ((now - start - j * _chordStagger) / _chordDraw).clamp(
+        0.0,
+        1.0,
+      );
       if (q <= 0) continue;
-      final sounding = scene.playingAll &&
+      final sounding =
+          scene.playingAll &&
           playhead != null &&
           playhead >= chord.startTime &&
           playhead <= chord.endTime;
       final lit = scene.selectedChord == j || sounding;
-      final dim = scene.selectedChord == null && scene.selected == null || lit ? 1.0 : 0.45;
+      final dim = scene.selectedChord == null && scene.selected == null || lit
+          ? 1.0
+          : 0.45;
 
       final full = l.chordRect(chord);
 
@@ -423,7 +493,9 @@ class ScorePainter extends CustomPainter {
       if (scene.selectedChord == j) {
         final tapStart = scene.chordTapStart;
         if (tapStart != null) {
-          final tapT = Curves.easeOut.transform(((now - tapStart) / 0.25).clamp(0.0, 1.0));
+          final tapT = Curves.easeOut.transform(
+            ((now - tapStart) / 0.25).clamp(0.0, 1.0),
+          );
           tapScale = 1.0 + 0.3 * (1 - tapT);
         }
       }
@@ -433,7 +505,10 @@ class ScorePainter extends CustomPainter {
         width: full.width * scale,
         height: full.height * scale,
       );
-      final shape = RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2));
+      final shape = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(rect.height / 2),
+      );
       final color = HarmonicColor.forRoman(chord.roman);
 
       // As this chord reveals itself, a small pulse glows around each of
@@ -443,12 +518,20 @@ class ScorePainter extends CustomPainter {
       if (pulse > 0) {
         for (final note in scene.notes) {
           if (!chord.contains(note)) continue;
-          _paintGlow(canvas, l.target(note), 45 * pulse, color.withValues(alpha: 0.18 * pulse));
+          _paintGlow(
+            canvas,
+            l.target(note),
+            45 * pulse,
+            color.withValues(alpha: 0.18 * pulse),
+          );
         }
       }
 
       // Paper first, so it reads as a solid card, not a faint outline.
-      canvas.drawRRect(shape, Paint()..color = Palette.paper.withValues(alpha: q));
+      canvas.drawRRect(
+        shape,
+        Paint()..color = Palette.paper.withValues(alpha: q),
+      );
       canvas.drawRRect(
         shape,
         Paint()..color = color.withValues(alpha: (lit ? 0.32 : 0.14) * q * dim),
@@ -479,13 +562,21 @@ class ScorePainter extends CustomPainter {
         ),
       );
       // Name and numeral if they fit, else just the name, else nothing.
-      for (final label in [TextSpan(children: [name, roman]), name]) {
-        final painter = TextPainter(text: label, textDirection: TextDirection.ltr)
-          ..layout();
+      for (final label in [
+        TextSpan(children: [name, roman]),
+        name,
+      ]) {
+        final painter = TextPainter(
+          text: label,
+          textDirection: TextDirection.ltr,
+        )..layout();
         if (painter.width <= full.width - 8) {
           painter.paint(
             canvas,
-            Offset(full.center.dx - painter.width / 2, full.center.dy - painter.height / 2),
+            Offset(
+              full.center.dx - painter.width / 2,
+              full.center.dy - painter.height / 2,
+            ),
           );
           break;
         }
@@ -501,7 +592,11 @@ class ScorePainter extends CustomPainter {
     if (a <= 0) return;
     // The key name itself takes on a dark shade of the key's own color as
     // it arrives, rather than staying plain ink.
-    final nameColor = Color.lerp(_ink, KeyColor.forTonicDark(key.tonic), _waveformColorT(now))!;
+    final nameColor = Color.lerp(
+      _ink,
+      KeyColor.forTonicDark(key.tonic),
+      _waveformColorT(now),
+    )!;
     final painter = TextPainter(
       text: TextSpan(
         children: [
@@ -557,8 +652,9 @@ class ScorePainter extends CustomPainter {
   double _faintVisibility(Note note, double now) {
     if (note.confidence >= noteConfidenceThreshold) return 1.0;
     final toggleStart = scene.faintToggleStart;
-    final progress =
-        toggleStart == null ? 1.0 : ((now - toggleStart) / _faintFadeDuration).clamp(0.0, 1.0);
+    final progress = toggleStart == null
+        ? 1.0
+        : ((now - toggleStart) / _faintFadeDuration).clamp(0.0, 1.0);
     return scene.showFaintNotes ? progress : 1 - progress;
   }
 
@@ -598,8 +694,11 @@ class ScorePainter extends CustomPainter {
       final focused = selected == null && chord == null;
       // A faint note settles at half strength once fully faded in, rather
       // than full strength, so it still reads as lower-confidence.
-      final faintFactor = note.confidence < noteConfidenceThreshold ? 0.5 * faintVis : 1.0;
-      final dim = (focused || selected == i || inChord ? 1.0 : 0.3) * faintFactor;
+      final faintFactor = note.confidence < noteConfidenceThreshold
+          ? 0.5 * faintVis
+          : 1.0;
+      final dim =
+          (focused || selected == i || inChord ? 1.0 : 0.3) * faintFactor;
 
       // The color of whichever chord this note sounds within, regardless of
       // selection; a note outside any detected chord gets a neutral color.
@@ -610,9 +709,12 @@ class ScorePainter extends CustomPainter {
           break;
         }
       }
-      final noteColor = owner == null ? HarmonicColor.neutral : HarmonicColor.forRoman(owner.roman);
+      final noteColor = owner == null
+          ? HarmonicColor.neutral
+          : HarmonicColor.forRoman(owner.roman);
       final playhead = scene.playhead;
-      final sounding = scene.playingAll &&
+      final sounding =
+          scene.playingAll &&
           playhead != null &&
           playhead >= note.startTime &&
           playhead <= note.endTime;
@@ -625,7 +727,9 @@ class ScorePainter extends CustomPainter {
       Offset along(double e) => _bezier(from, control, to, e);
 
       final e = Curves.easeOutCubic.transform(p);
-      final arrive = Curves.easeOut.transform(((p - 0.7) / 0.3).clamp(0.0, 1.0));
+      final arrive = Curves.easeOut.transform(
+        ((p - 0.7) / 0.3).clamp(0.0, 1.0),
+      );
       final outlier = l.isOutlier(i);
 
       // The slice of waveform this note came from, now tinted.
@@ -640,12 +744,17 @@ class ScorePainter extends CustomPainter {
           l.waveAmp,
         );
         final tint = lit ? 0.3 : 0.05 * dim;
-        canvas.drawPath(segment, Paint()..color = noteColor.withValues(alpha: tint * arrive));
+        canvas.drawPath(
+          segment,
+          Paint()..color = noteColor.withValues(alpha: tint * arrive),
+        );
 
         // Thread tying the note back to where it was heard — only while
         // it's still landing, or while selected/playing; hidden otherwise
         // so it doesn't clutter the settled view.
-        final threadAlpha = lit ? 0.25 * arrive : (arrive >= 1.0 ? 0.0 : 0.06 * dim * arrive);
+        final threadAlpha = lit
+            ? 0.25 * arrive
+            : (arrive >= 1.0 ? 0.0 : 0.06 * dim * arrive);
         if (threadAlpha > 0) {
           canvas.drawLine(
             Offset(to.dx, from.dy),
@@ -696,7 +805,8 @@ class ScorePainter extends CustomPainter {
           canvas.drawCircle(
             along(back),
             2.4 * (1 - k / 8),
-            Paint()..color = noteColor.withValues(alpha: 0.35 * (1 - k / 7) * conf),
+            Paint()
+              ..color = noteColor.withValues(alpha: 0.35 * (1 - k / 7) * conf),
           );
         }
       }
@@ -706,7 +816,11 @@ class ScorePainter extends CustomPainter {
       final pop = p > 0.8 ? math.sin(math.pi * (p - 0.8) / 0.2) : 0.0;
       final radius = (2.2 + 2.6 * e) * (1 + 0.35 * pop);
       final head = along(e);
-      canvas.drawCircle(head, radius, Paint()..color = noteColor.withValues(alpha: conf));
+      canvas.drawCircle(
+        head,
+        radius,
+        Paint()..color = noteColor.withValues(alpha: conf),
+      );
       if (lit) {
         canvas.drawCircle(
           head,
@@ -731,7 +845,10 @@ class ScorePainter extends CustomPainter {
           ),
           textDirection: TextDirection.ltr,
         )..layout();
-        painter.paint(canvas, Offset(to.dx - painter.width / 2, to.dy + (arrow == '↑' ? 8 : -18)));
+        painter.paint(
+          canvas,
+          Offset(to.dx - painter.width / 2, to.dy + (arrow == '↑' ? 8 : -18)),
+        );
       }
     }
   }
@@ -760,7 +877,10 @@ class ScorePainter extends CustomPainter {
     double cy,
     double amp,
   ) {
-    final count = math.max(2, math.min(envelope.length, ((x1 - x0) / 3).round()));
+    final count = math.max(
+      2,
+      math.min(envelope.length, ((x1 - x0) / 3).round()),
+    );
     final top = <Offset>[];
     final bottom = <Offset>[];
     for (var j = 0; j < count; j++) {
@@ -781,7 +901,12 @@ class ScorePainter extends CustomPainter {
   static void _smoothThrough(Path path, List<Offset> points) {
     for (var i = 1; i < points.length; i++) {
       final mid = Offset.lerp(points[i - 1], points[i], 0.5)!;
-      path.quadraticBezierTo(points[i - 1].dx, points[i - 1].dy, mid.dx, mid.dy);
+      path.quadraticBezierTo(
+        points[i - 1].dx,
+        points[i - 1].dy,
+        mid.dx,
+        mid.dy,
+      );
     }
     path.lineTo(points.last.dx, points.last.dy);
   }
