@@ -302,14 +302,29 @@ ferroflow_music.html`) without porting its fragment shader.
 - **Arc-length, not angle, parameterization** for the rim the inner curve
   is measured from (`edgeAnchor`/`edgeInward`): the prototype places its
   12 spikes by angle around a full circle, which is fine when every
-  angle is in play. Once the bottom of the screen is reserved for a
-  future tab bar, angle-slicing would bunch points at the two remaining
-  corners; walking a fixed arc-length around the left-top-right rim
-  instead keeps them evenly spaced
-- **The bottom reservation is geometric, not a clip**: `edgeAnchor` never
-  produces a point below `size.height * (1 - fluidBottomReserve)` in the
-  first place, rather than drawing a full field and cutting off the
-  bottom after the fact (which would risk a visible seam at the cut)
+  angle is in play. Once the bottom of the screen is excluded, angle-
+  slicing would bunch points at the two remaining corners; walking a
+  fixed arc-length around the left-top-right rim instead keeps them
+  evenly spaced
+- **Tapering to a point at the bottom corners, not a flat cut**
+  (`edgeTaper`): a first version stopped `edgeAnchor`/`edgeInward`
+  themselves at `size.height * (1 - fluidBottomReserve)`, so the rim
+  simply didn't exist below that line — visually an abrupt flat cut
+  with a sharp corner where the band ended, which reads as a container,
+  not a liquid. Now the rim runs the *entire* edge, all the way to the
+  true bottom-left/bottom-right corners, and `edgeTaper` instead scales
+  each point's *reach* down to 0 as it nears either end (eased with an
+  exponent > 1 for a fuller, rounder taper rather than a thin wedge) —
+  so the inner (wavy) boundary simply converges onto the outer boundary
+  (the screen's own edge) right at the corner. There's no separate "end
+  cap" to draw; the shape just naturally pinches to a point, the way a
+  real drop of liquid running down an edge would thin out rather than
+  stopping square
+- **A small fillet at the top two corners** (`_topCornerRadius`, drawn
+  via `quadraticBezierTo` the same way a rounded-rect corner is built):
+  the only place the fluid's outer boundary still has to touch an
+  actual geometric corner (where the screen's own top edge meets its
+  sides) — even there, nothing about a fluid is a perfect right angle
 - **The rim wraps, so distance must too**: `fieldLengthAt` measures each
   bump's distance from a sample point as
   `min((t - center).abs(), 1 - (t - center).abs())` — without the
@@ -318,16 +333,23 @@ ferroflow_music.html`) without porting its fragment shader.
   bottom-of-right-edge seam) would see each other as maximally far
   apart instead of adjacent, putting a visible seam where there
   shouldn't be one
-- **Randomized, not audio-driven, while recording** — an explicit,
-  named scope cut: this step is about proving the visual reads as
-  liquid, not about pitch accuracy. `_spikeAmplitude` reuses the same
-  "two unrelated sines multiplied" noise trick as `ribbonWobbleY`
-  (`_ripple`, continuous in both space and time, so neighboring rim
-  samples and frames stay close together and nothing needs extra
-  smoothing to avoid jitter), rather than a literal `Random()` call or
-  real pitch detection. A later step can swap this one function for
-  something reading `Chord.pitchClasses`/`startTime`/`endTime` without
-  touching the field-summation or rendering code at all
+- **Pulses tied to the actual recording, randomized only in *where* they
+  appear**: a first version drove every spike's amplitude from
+  continuous noise the whole time — visually smooth, but it read as "a
+  generic wave throughout the fluid" with no real connection to what
+  was being recorded. `_recordingAmplitude` now keeps every spike at a
+  calm resting floor until `Scene.lastPeakAt` fires (the same
+  "loudness just crossed a threshold on a rising edge" signal that
+  already drives the mascot's listening bob, see `session_screen.dart`'s
+  amplitude listener) — at that instant, *one* spike, chosen by
+  `_pulseSpikeIndex` (a `sin(x)*43758.5453`-then-take-the-fraction hash
+  of the peak's own timestamp — a classic shader trick, a nice callback
+  to the reference prototype's own GLSL), gets a pronounced pulse that
+  rises quickly then decays like a real transient. The pulse's
+  existence and timing come from the real recording; only its position
+  around the rim is randomized — directly mirroring the reference
+  prototype's own `spawnDrop(melPc)`, which spawns a localized droplet
+  on each detected note onset rather than animating continuously
 - **Staggered entrance, reusing `Scene.introStart`**: rather than a new
   timestamp field, the fluid's grow-in reuses the same `introStart`/
   `introDuration` the mascot's wake-in and the line's `reveal` already
