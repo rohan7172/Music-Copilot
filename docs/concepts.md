@@ -31,6 +31,22 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   canvas with primitives (paths, arcs, text) instead of composing widgets;
   how the waveform, note arcs, and chord bands are actually rendered
 
+## Local persistence (`shared_preferences`, `session_screen.dart`)
+
+- The app's first piece of state that survives a restart: a single
+  boolean flag (`hasSeenFirstRunHint`) remembering whether the
+  first-run hint line has already been shown, so it appears exactly
+  once, ever, rather than every time the app opens
+- `shared_preferences` — Flutter's standard package for small local
+  key-value data (a handful of bools/strings/numbers), backed by each
+  platform's own simple storage (e.g. `UserDefaults` on iOS,
+  `SharedPreferences` on Android, `localStorage` on web). It's `async`
+  (`SharedPreferences.getInstance()`) because reading platform storage
+  isn't instant, unlike reading an in-memory field
+- This is deliberately not the same tool a "save my recordings"
+  feature would reach for later (that needs real files/a database, not
+  a few flags) — matching the tool to the size of the problem
+
 ## Color as music theory (`harmonic_color.dart`)
 
 - Tonic/subdominant/dominant function — the three broad "roles" a chord

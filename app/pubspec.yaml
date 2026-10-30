@@ -48,6 +48,8 @@ dependencies:
   audio_session: ^0.2.4
   # Picking an existing audio file to analyze
   file_picker: ^10.1.2
+  # Small local key-value flags (e.g. "has the first-run hint been shown")
+  shared_preferences: ^2.3.3
 
 dev_dependencies:
   flutter_test:

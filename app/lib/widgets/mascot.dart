@@ -60,6 +60,15 @@ class MascotPainter extends CustomPainter {
   static const _blinkDuration = 0.14;
   static const _popDuration = 0.4;
 
+  // Idle breathing: scale 0.98..1.02 over a 4s cycle (angular speed
+  // 2*pi / 4s), matching the Invite beat's spec exactly.
+  static const _idleBreathSpeed = math.pi / 2;
+
+  // Idle eye-drift: a slow, single downward glance toward the record
+  // button once per cycle — "eyes drift toward the record button" — not
+  // continuous tracking, just an occasional, gentle tell.
+  static const _eyeDriftCycle = 7.0;
+
   // The one-time "waking up" entrance, keyed off Scene.introStart: grows in
   // partway through the intro, eyes opening shortly after — never repeats.
   static const _wakeScaleStart = 0.5;
@@ -86,7 +95,7 @@ class MascotPainter extends CustomPainter {
     final scale = wake < 1.0
         ? wake
         : switch (expression) {
-            MascotExpression.idle => 1.0 + 0.02 * math.sin(now * 1.1),
+            MascotExpression.idle => 1.0 + 0.02 * math.sin(now * _idleBreathSpeed),
             MascotExpression.revealing => _popScale(now),
             _ => 1.0,
           };
@@ -135,7 +144,8 @@ class MascotPainter extends CustomPainter {
   }
 
   void _paintEyes(Canvas canvas, double bodyH, double now, MascotExpression expression) {
-    final eyeY = -bodyH * 0.14;
+    final drift = expression == MascotExpression.idle ? _eyeDrift(now) : 0.0;
+    final eyeY = -bodyH * 0.14 + bodyH * 0.035 * drift;
     final eyeDx = bodyH * 0.165;
     final eyeRadius = bodyH * 0.05 * (expression == MascotExpression.listening ? 1.15 : 1.0);
 
@@ -182,6 +192,14 @@ class MascotPainter extends CustomPainter {
     final t = (elapsed / _wakeEyesOpenDuration).clamp(0.0, 1.0);
     if (t >= 1.0) return null;
     return 0.08 + 0.92 * Curves.easeOut.transform(t);
+  }
+
+  /// 0..1: a single gentle downward glance toward the record button once
+  /// per [_eyeDriftCycle] seconds — eases down, holds briefly, eases back
+  /// up. Idle-only; never runs alongside the blink/listening/wake logic.
+  double _eyeDrift(double now) {
+    final phase = (now % _eyeDriftCycle) / _eyeDriftCycle;
+    return math.sin(math.pi * phase).clamp(0.0, 1.0);
   }
 
   /// The semicircular stand a handheld mic rests in — a physical detail,

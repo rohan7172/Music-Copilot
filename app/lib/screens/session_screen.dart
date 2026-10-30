@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../audio/pick_audio_file.dart';
 import '../audio/read_recording.dart';
@@ -58,6 +59,10 @@ class _SessionScreenState extends State<SessionScreen>
   /// to a single note's slice.
   bool _playingAll = false;
 
+  /// Shown once, under "Play something," on the very first time the app is
+  /// ever opened — never again after that (see `_loadFirstRunHint`).
+  bool _showFirstRunHint = false;
+
   Phase get _phase => _scene.phase;
 
   @override
@@ -76,6 +81,18 @@ class _SessionScreenState extends State<SessionScreen>
     // and ScorePainter._introReveal. The splash screen (shown before this
     // one) already played the chime; nothing to play again here.
     _scene.introStart = _clock.value;
+    unawaited(_loadFirstRunHint());
+  }
+
+  /// The app's first persisted state: shows the "Hum, sing, or play any
+  /// instrument." hint once, on the very first launch, then never again —
+  /// no onboarding carousel, just one line that doesn't come back.
+  Future<void> _loadFirstRunHint() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'hasSeenFirstRunHint';
+    if (prefs.getBool(key) ?? false) return;
+    await prefs.setBool(key, true);
+    if (mounted) setState(() => _showFirstRunHint = true);
   }
 
   @override
@@ -713,6 +730,25 @@ class _SessionScreenState extends State<SessionScreen>
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 400),
                           child: _buildOverview(idle),
+                        ),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 600),
+                          child: (idle && _showFirstRunHint)
+                              ? Padding(
+                                  key: const ValueKey('first-run-hint'),
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'Hum, sing, or play any instrument.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w300,
+                                      letterSpacing: 0.4,
+                                      color: Palette.ink.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                )
+                              : const SizedBox.shrink(key: ValueKey('no-first-run-hint')),
                         ),
                       ],
                     ),
