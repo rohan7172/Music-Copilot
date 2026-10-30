@@ -333,23 +333,33 @@ ferroflow_music.html`) without porting its fragment shader.
   bottom-of-right-edge seam) would see each other as maximally far
   apart instead of adjacent, putting a visible seam where there
   shouldn't be one
-- **Pulses tied to the actual recording, randomized only in *where* they
-  appear**: a first version drove every spike's amplitude from
-  continuous noise the whole time — visually smooth, but it read as "a
-  generic wave throughout the fluid" with no real connection to what
-  was being recorded. `_recordingAmplitude` now keeps every spike at a
-  calm resting floor until `Scene.lastPeakAt` fires (the same
-  "loudness just crossed a threshold on a rising edge" signal that
-  already drives the mascot's listening bob, see `session_screen.dart`'s
-  amplitude listener) — at that instant, *one* spike, chosen by
-  `_pulseSpikeIndex` (a `sin(x)*43758.5453`-then-take-the-fraction hash
-  of the peak's own timestamp — a classic shader trick, a nice callback
-  to the reference prototype's own GLSL), gets a pronounced pulse that
-  rises quickly then decays like a real transient. The pulse's
-  existence and timing come from the real recording; only its position
-  around the rim is randomized — directly mirroring the reference
-  prototype's own `spawnDrop(melPc)`, which spawns a localized droplet
-  on each detected note onset rather than animating continuously
+- **Energy tied to live volume, continuously — two earlier attempts
+  missed this**: version 1 drove every spike's amplitude from continuous
+  noise the whole time, with no connection to the actual recording at
+  all — "a generic wave throughout the fluid." Version 2 fixed that by
+  keeping every spike at a calm floor until `Scene.lastPeakAt` fired (a
+  discrete "loudness just crossed a threshold" event, the same signal
+  already driving the mascot's listening bob), at which point one
+  randomly-chosen spike got a pronounced rise-then-decay pulse — tied to
+  the recording, but still read as an isolated blip: a held, sustained
+  note should keep the fluid pulsating for as long as it's held, not
+  fire once and go quiet. `_recordingAmplitude` now instead scales a
+  continuous organic wave (the same "two unrelated sines multiplied"
+  shape as `_idleAmplitude`, blended from two phase-shifted terms)
+  directly by `liveVolume` — `Scene.live`'s own trailing average, the
+  exact "how loud right now" signal the recording-time musical lines
+  already swell with (`liveVolume` was promoted from a `ScorePainter`-
+  private method to a shared top-level function in this file so both
+  callers read the same number the same way). Held loud input keeps
+  pulsating the whole time it's held and scales with its own loudness;
+  quieter input pulses less; true silence (`liveVolume` at or near 0)
+  locks every spike to an exact, motionless floor — not asymptotically
+  approaching stillness, genuinely stagnant. Each spike's own phase
+  offset still shifts independently over time, so which spikes are
+  pulsing hardest at any instant keeps moving around the rim — that's
+  where the "randomness in where" from the earlier version survives,
+  now layered on a magnitude that's honestly driven by the audio rather
+  than driving the whole effect by itself
 - **Staggered entrance, reusing `Scene.introStart`**: rather than a new
   timestamp field, the fluid's grow-in reuses the same `introStart`/
   `introDuration` the mascot's wake-in and the line's `reveal` already

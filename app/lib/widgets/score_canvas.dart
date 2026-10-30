@@ -221,6 +221,22 @@ double smoothedAmplitude(List<double> envelope, double fraction) {
   return sum / samples;
 }
 
+/// How loud *right now* — a short trailing average of recently sampled live
+/// loudness (see [Scene.live]), not a per-moment history. Shared by the
+/// recording-time musical lines (which swell together as you get louder,
+/// the way a simple level meter would, rather than plotting the past) and
+/// the edge fluid field (`widgets/fluid_field.dart`), so both read "how
+/// loud is it right now" the same way.
+double liveVolume(List<double> live) {
+  if (live.isEmpty) return 0;
+  final window = math.min(6, live.length);
+  var sum = 0.0;
+  for (var i = live.length - window; i < live.length; i++) {
+    sum += live[i];
+  }
+  return sum / window;
+}
+
 /// Strokes one flowing "musical line" strand — the shared visual language
 /// for recorded audio throughout the app (the idle/recording line, the
 /// settled lines, and the splash screen's line alike, see
@@ -429,22 +445,6 @@ class ScorePainter extends CustomPainter {
   double _liveSpan(SceneLayout l) =>
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
-  /// How loud *right now* — a short trailing average of [Scene.live], not a
-  /// per-moment history. The lines while recording aren't a waveform trace
-  /// any more, just a depiction of "something is being recorded": they
-  /// swell together as you get louder, the way a simple level meter would,
-  /// rather than plotting the past.
-  double _liveVolume() {
-    final live = scene.live;
-    if (live.isEmpty) return 0;
-    final window = math.min(6, live.length);
-    var sum = 0.0;
-    for (var i = live.length - window; i < live.length; i++) {
-      sum += live[i];
-    }
-    return sum / window;
-  }
-
   /// Three cartoony strands while actively recording (and fading out during
   /// the morph into the settled lines) — not trying to look like the real
   /// waveform at all. Loudness swells all three together; each strand's own
@@ -467,7 +467,7 @@ class ScorePainter extends CustomPainter {
         ..strokeWidth = 1,
     );
     if (span <= 0) return;
-    final volume = _liveVolume();
+    final volume = liveVolume(scene.live);
     for (var k = 0; k < LineColors.all.length; k++) {
       strokeMusicalLine(
         canvas,

@@ -72,18 +72,26 @@ void main() {
       }
     });
 
-    test('recording with no peak yet stays calm and uniform, not a generic wave', () {
-      final scene = Scene()..phase = Phase.recording; // lastPeakAt still null
-      final values = [for (var t = 0.0; t <= 1.0; t += 0.02) fieldLengthAt(t, 3.0, scene)];
-      final spread = values.reduce(math.max) - values.reduce(math.min);
-      expect(spread, lessThan(0.03));
+    test('recording in silence is completely stagnant: motionless over time', () {
+      final silent = Scene()..phase = Phase.recording; // live stays empty
+
+      // The static Gaussian-overlap pattern around the rim can still vary a
+      // little from point to point (every spike shares the same amplitude,
+      // but centers and gaps don't contribute identically) - what matters
+      // for "stagnant" is that nothing *moves*: the same rim position gives
+      // the exact same value no matter when it's sampled.
+      for (var t = 0.0; t <= 1.0; t += 0.1) {
+        final early = fieldLengthAt(t, 3.0, silent);
+        final muchLater = fieldLengthAt(t, 30.0, silent);
+        expect(muchLater, early);
+      }
     });
 
-    test('a peak produces a noticeably taller field than idle ever reaches', () {
-      final recording = Scene()
+    test('louder live volume produces a noticeably taller field than silence', () {
+      final loud = Scene()
         ..phase = Phase.recording
-        ..lastPeakAt = 5.0;
-      final idle = Scene()..phase = Phase.idle;
+        ..live.addAll(List.filled(6, 0.85));
+      final silent = Scene()..phase = Phase.recording;
 
       double maxOverRim(Scene scene, double now) {
         var m = 0.0;
@@ -93,27 +101,51 @@ void main() {
         return m;
       }
 
-      final peakMax = maxOverRim(recording, 5.05);
-      final idleMax = maxOverRim(idle, 5.05);
-      expect(peakMax, greaterThan(idleMax));
+      expect(maxOverRim(loud, 5.0), greaterThan(maxOverRim(silent, 5.0)));
     });
 
-    test('a peak pulse decays back to resting after its duration', () {
-      final scene = Scene()
+    test('field magnitude scales up with volume', () {
+      final quiet = Scene()
         ..phase = Phase.recording
-        ..lastPeakAt = 2.0;
+        ..live.addAll(List.filled(6, 0.2));
+      final loud = Scene()
+        ..phase = Phase.recording
+        ..live.addAll(List.filled(6, 0.9));
+
+      double avgOverRim(Scene scene, double now) {
+        var sum = 0.0;
+        var n = 0;
+        for (var t = 0.0; t <= 1.0; t += 0.02) {
+          sum += fieldLengthAt(t, now, scene);
+          n++;
+        }
+        return sum / n;
+      }
+
+      expect(avgOverRim(loud, 4.0), greaterThan(avgOverRim(quiet, 4.0)));
+    });
+
+    test('a held, sustained volume keeps pulsating rather than decaying like a one-shot blip', () {
+      final held = Scene()
+        ..phase = Phase.recording
+        ..live.addAll(List.filled(6, 0.8));
 
       double maxOverRim(double now) {
         var m = 0.0;
         for (var t = 0.0; t <= 1.0; t += 0.01) {
-          m = math.max(m, fieldLengthAt(t, now, scene));
+          m = math.max(m, fieldLengthAt(t, now, held));
         }
         return m;
       }
 
-      final justAfter = maxOverRim(2.1);
-      final longAfter = maxOverRim(4.0);
-      expect(justAfter, greaterThan(longAfter));
+      // Sampled far apart in time with the same held volume throughout -
+      // neither should have faded toward the resting floor the way a
+      // one-shot pulse would have by the second sample.
+      final early = maxOverRim(1.0);
+      final muchLater = maxOverRim(40.0);
+      const restingFloor = 0.08;
+      expect(early, greaterThan(restingFloor + 0.1));
+      expect(muchLater, greaterThan(restingFloor + 0.1));
     });
   });
 }

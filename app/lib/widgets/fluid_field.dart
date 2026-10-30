@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
 import '../theme.dart';
-import 'score_canvas.dart' show Phase, Scene, introDuration;
+import 'score_canvas.dart' show Phase, Scene, introDuration, liveVolume;
 
 /// Roughly how much of the screen's height, measured from the bottom, the
 /// fluid tapers down to nothing within — not a hard cutoff (see
@@ -112,49 +112,39 @@ double _ripple(double x, double now) =>
 double _idleAmplitude(int k, double now) =>
     (0.14 + 0.10 * _ripple(k * 3.1, now * 0.25)).clamp(0.0, 1.0);
 
-const _restingFloor = 0.12;
+const _restingFloor = 0.08;
 
-/// A pseudo-random spike index for a given peak timestamp — the classic
-/// "hash a float through a scaled sine's fractional part" trick, picked so
-/// the *same* [peakAt] always maps to the *same* spike for as long as that
-/// peak's pulse is playing out (no popping to a different spot mid-pulse),
-/// while consecutive peaks land on unrelated spikes.
-int _pulseSpikeIndex(double peakAt) {
-  final x = math.sin(peakAt * 78.233) * 43758.5453;
-  final frac = x - x.floorToDouble();
-  return (frac.abs() * _spikeCount).floor().clamp(0, _spikeCount - 1);
-}
+/// Below this trailing volume, the recording reads as silence — amplitude
+/// locks to exactly [_restingFloor] with no time-variation at all, so the
+/// fluid goes completely stagnant rather than asymptotically approaching
+/// stillness.
+const _silenceThreshold = 0.01;
 
-const _peakPulseDuration = 0.6;
-const _peakPulseRiseFraction = 0.15;
-const _peakPulseMagnitude = 0.95;
-
-/// 0..[_peakPulseMagnitude]: a quick rise then a slower decay, the shape of
-/// a real transient — not a symmetric blip.
-double _peakPulseEnvelope(double now, double peakAt) {
-  final t = ((now - peakAt) / _peakPulseDuration).clamp(0.0, 1.0);
-  if (t >= 1.0) return 0.0;
-  if (t < _peakPulseRiseFraction) {
-    return _peakPulseMagnitude * Curves.easeOut.transform(t / _peakPulseRiseFraction);
-  }
-  final fall = (t - _peakPulseRiseFraction) / (1 - _peakPulseRiseFraction);
-  return _peakPulseMagnitude * (1 - Curves.easeIn.transform(fall));
-}
-
-/// 0..1 how strongly spike [k] is reaching out while recording. Earlier
-/// versions drove this from continuous noise alone, which read as "a
-/// generic wave throughout the fluid" with no real connection to what was
-/// being recorded. Instead: every spike sits at a calm [_restingFloor]
-/// until [Scene.lastPeakAt] fires — the same "loudness just crossed a
-/// threshold on a rising edge" signal that already drives the mascot's
-/// listening bob — at which point *one* spike, chosen by [_pulseSpikeIndex],
-/// gets a pronounced pulse that rises and decays. The pulse's existence and
-/// timing are tied to the actual recording; only *where* it appears around
-/// the rim is randomized, same as the prompt asked for.
+/// 0..1 how strongly spike [k] is reaching out while recording. An earlier
+/// version triggered one discrete, randomly-placed pulse each time a loud
+/// moment crossed a threshold (`Scene.lastPeakAt`) — closer to the real
+/// recording than pure noise, but it still read as an isolated blip rather
+/// than something a held, sustained note would produce: a steady tone
+/// should keep the fluid pulsating the whole time it's held, scaling with
+/// its own loudness, not fire once and go quiet again. This version
+/// instead scales a continuous organic wave (the same "two unrelated sines
+/// multiplied" trick as `_idleAmplitude`, just two terms blended for a
+/// richer shape) directly by [liveVolume] — [Scene.live]'s own trailing
+/// average, the same "how loud right now" signal the recording-time
+/// musical lines already swell with. Held loud input keeps pulsating for
+/// as long as it's held; quieter input pulses less; true silence collapses
+/// to a flat, motionless floor. Which spikes happen to be pulsing hardest
+/// at any instant still shifts continuously around the rim (each spike's
+/// own phase offset, `k * 3.1`/`k * 7.7`, is different) — that's the
+/// "randomness in where," now layered on top of a magnitude that's
+/// honestly tied to the audio rather than driving the whole thing.
 double _recordingAmplitude(int k, double now, Scene scene) {
-  final peakAt = scene.lastPeakAt;
-  if (peakAt == null || _pulseSpikeIndex(peakAt) != k) return _restingFloor;
-  return (_restingFloor + _peakPulseEnvelope(now, peakAt)).clamp(0.0, 1.0);
+  final volume = liveVolume(scene.live);
+  if (volume <= _silenceThreshold) return _restingFloor;
+  final wave = _ripple(k * 3.1, now * 1.1);
+  final wave2 = _ripple(k * 7.7 + 11, now * 2.3);
+  final shape = 0.6 * wave + 0.4 * wave2;
+  return (_restingFloor + volume * (0.3 + 0.7 * shape)).clamp(0.0, 1.0);
 }
 
 /// 0..1 how far inward the fluid reaches at rim position [t] — the same
@@ -235,7 +225,7 @@ double _entranceGrowthAt(double now, double? introStart, double t) {
 ///
 /// Timestamp-driven off [clock], like every other painter in this app — no
 /// `AnimationController`. Reads only [Scene.phase]/[Scene.introStart]/
-/// [Scene.analyzeStart]/[Scene.lastPeakAt]; no new `Scene` fields needed.
+/// [Scene.analyzeStart]/[Scene.live]; no new `Scene` fields needed.
 class FluidFieldPainter extends CustomPainter {
   FluidFieldPainter(this.scene, this.clock) : super(repaint: clock);
 
