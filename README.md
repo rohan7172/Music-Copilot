@@ -11,6 +11,23 @@ See [`docs/concepts.md`](docs/concepts.md) for a learning checklist covering
 everything used in this codebase, from Dart/Flutter basics to the ML
 concepts behind Basic Pitch.
 
+## Quick start
+
+With Python 3.11 and Flutter installed, from the repo root:
+
+```bash
+./dev.sh
+```
+
+It sets up or updates the backend's Python packages when needed, starts the
+backend, serves the app at `http://localhost:8080` and opens it in your
+browser. `r` / `R` in that terminal reload the app; `Ctrl+C` stops everything.
+Backend output goes to `.dev/backend.log`. Leftover servers from an earlier
+run are stopped automatically; anything else using ports 8000 or 8080 is
+reported, not touched.
+
+The manual steps it automates are below.
+
 ## Structure
 
 - `backend/` — Python FastAPI server that runs Basic Pitch on an uploaded
@@ -22,7 +39,8 @@ concepts behind Basic Pitch.
 
 Requires Python 3.11 (Basic Pitch's ML dependencies don't yet support the
 very latest Python releases, so a pinned 3.11 venv is used instead of the
-system Python).
+system Python), and `ffmpeg` on your `PATH` (`brew install ffmpeg` on a Mac)
+for decoding uploaded MP3/M4A files — WAV/FLAC/OGG work without it.
 
 ```bash
 cd backend
@@ -37,6 +55,15 @@ analysis after that is quick. Check it's alive:
 
 ```bash
 curl http://127.0.0.1:8000/health
+```
+
+Alongside the notes, `/analyze` returns the detected `key` and `chords`
+(name, Roman numeral, notes, start/end time), worked out from the notes in
+`backend/app/harmony.py`. Run its tests with:
+
+```bash
+./venv/bin/pip install -r requirements-dev.txt
+./venv/bin/pytest
 ```
 
 Analyze an audio file:
@@ -82,8 +109,19 @@ A single canvas instead of separate record and results screens:
    opacity is confidence. A thread ties each note back to the slice of
    waveform it came from.
 
+Once the notes land, the detected chords draw themselves in as a band
+between the notes and the waveform, each with its Roman numeral, and the key
+appears in the corner. Tap a chord to hear it and light up the notes that
+make it.
+
 Tap a note, or the stretch of waveform it came from, to hear it. A playhead
 sweeps the slice while it plays, and the note's duration stroke fills in.
 `play` plays the whole recording (tap again to pause), lighting up each note
 as it sounds. Tapping empty space stops playback. `redraw` re-runs the
 animation.
+
+`upload`, next to the record button while idle, analyzes an existing WAV,
+MP3, or M4A file instead of a live recording. A WAV's waveform is decoded
+exactly like a recording's; MP3/M4A can't be decoded into an exact envelope
+client-side, so their "waveform" is a stand-in built from the detected
+notes' timing and confidence once analysis comes back.

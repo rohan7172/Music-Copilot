@@ -4,7 +4,20 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
-import '../models/note.dart';
+import '../models/harmony.dart';
+
+final _mediaTypesByExtension = {
+  'wav': MediaType('audio', 'wav'),
+  'mp3': MediaType('audio', 'mpeg'),
+  'm4a': MediaType('audio', 'mp4'),
+};
+
+/// The content type to upload a file as, inferred from its extension.
+/// Falls back to WAV for anything unrecognised.
+MediaType mediaTypeForFilename(String filename) {
+  final extension = filename.split('.').last.toLowerCase();
+  return _mediaTypesByExtension[extension] ?? _mediaTypesByExtension['wav']!;
+}
 
 /// Talks to the Music Copilot backend.
 ///
@@ -21,15 +34,15 @@ class ApiService {
 
   final String baseUrl;
 
-  Future<List<Note>> analyzeAudio(Uint8List wavBytes) async {
+  Future<Analysis> analyzeAudio(Uint8List bytes, {String filename = 'recording.wav'}) async {
     final uri = Uri.parse('$baseUrl/analyze');
     final request = http.MultipartRequest('POST', uri)
       ..files.add(
         http.MultipartFile.fromBytes(
           'file',
-          wavBytes,
-          filename: 'recording.wav',
-          contentType: MediaType('audio', 'wav'),
+          bytes,
+          filename: filename,
+          contentType: mediaTypeForFilename(filename),
         ),
       );
 
@@ -40,8 +53,6 @@ class ApiService {
       throw Exception('Server returned ${response.statusCode}: ${response.body}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final notesJson = data['notes'] as List<dynamic>;
-    return notesJson.map((n) => Note.fromJson(n as Map<String, dynamic>)).toList();
+    return Analysis.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 }

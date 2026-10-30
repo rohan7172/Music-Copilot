@@ -1,7 +1,8 @@
 # Concepts to learn
 
 Organized by the part of the code you'll be reading, roughly in the order
-you'll hit them.
+you'll hit them. Kept in sync with the codebase — when a feature introduces
+a genuinely new concept, it gets added here.
 
 ## Dart language basics
 
@@ -12,26 +13,355 @@ Needed to read any file in `app/lib/`.
   time (like network calls), used constantly in `api_service.dart`
 - Null safety (`?`, `!`) — Dart's type system tracks what can be null
 
+
 ## Flutter app structure
 
-Needed to read `main.dart` and the screens.
+Needed to read `main.dart`, `screens/session_screen.dart` and
+`session/session_controller.dart`.
 
 - Widgets — everything in a Flutter UI is a widget; `StatelessWidget` vs
   `StatefulWidget` (state = data that can change and redraw the UI)
 - The widget tree and `build()` method — how widgets nest to form a screen
-- `setState()` — how a `StatefulWidget` tells Flutter "redraw me, something
-  changed" (e.g. recording started, notes came back)
-- Navigation (`Navigator.push`) — how the app moves from the record screen
-  to the results screen
 - `pubspec.yaml` and packages (pub.dev) — Flutter's equivalent of
   `package.json`/npm, declares dependencies like `record` and `http`
+- `Ticker` — Flutter's per-frame clock. `SessionController` owns one and
+  publishes "seconds since start" on a `ValueNotifier<double>` (`clock`);
+  every animation in the app (mascot, fluid, contour, stream) is a pure
+  function of that number rather than having its own animation controller
+- `CustomPainter` — drawing directly onto a canvas with primitives (paths,
+  arcs, text) instead of composing widgets; how the mascot, the edge
+  fluid, the vocal contour and the acoustic stream are rendered.
+  `super(repaint: clock)` makes a painter redraw every frame without
+  rebuilding any widgets
 
-## Audio recording on-device
+## Separating state from screens (`session/session_controller.dart`)
 
-- Microphone permissions (iOS `Info.plist` entries, runtime permission
-  prompts)
-- What the `record` package is doing: capturing raw audio and encoding it
-  to a file (e.g. `.wav`/`.m4a`)
+The old app kept everything — microphone, backend call, playback, drawing
+— in one 1,000-line `StatefulWidget`. The Stitch overhaul split that:
+
+- `ChangeNotifier` — a plain Dart object that holds state and calls
+  `notifyListeners()` when it changes. `SessionController` is one: it owns
+  the recorder, player and API client, and exposes the phase, the
+  results, `isPlaying`, `loop` and so on. It has no widgets in it, so the
+  same logic could sit behind a completely different UI
+- `ListenableBuilder` / `ValueListenableBuilder` — the widget side of the
+  same idea: "rebuild this part of the tree when that object changes."
+  `SessionScreen` rebuilds on the controller (discrete changes: phase,
+  results, play/pause); small pieces like the recording timer or the
+  "sounding now" label rebuild on `clock` (every frame) — so a per-frame
+  change never rebuilds the whole screen
+- One view per phase (`screens/views/`): `IdleView`, `ListeningView`
+  (recording *and* analyzing — sharing one view is what lets the hand-off
+  animate in place), `ResultsView`, `ErrorView`. `SessionScreen` just
+  picks one and cross-fades with `AnimatedSwitcher`, keyed by a string so
+  Flutter knows when the view really changed
+- A test seam: `SessionScreen(createController: ...)` lets a test build the
+  screen around a fake controller with hand-made results, which is how
+  every screen state can be rendered and checked without a microphone,
+  backend, or file picker
+
+## A design system in code (`theme.dart`)
+
+- Design tokens — colors, type sizes, radii and spacing defined once as
+  named constants (`Palette.primary`, `TextStyles.headlineLg`,
+  `Shape.panel`, `Space.md`) and referenced everywhere, never as raw
+  values. They're copied from the Google Stitch project's Tailwind config,
+  so "the design" and "the code" share one vocabulary
+- Bundled fonts — the four Plus Jakarta Sans `.ttf` weights live in
+  `app/assets/fonts/` and are declared under `fonts:` in `pubspec.yaml`
+  (one `family`, one `asset` per `weight`). Bundling instead of fetching at
+  runtime means text looks identical on every platform and offline
+- Letter spacing units — CSS/Tailwind spacing is in `em` (relative to the
+  font size); Flutter's `letterSpacing` is in logical pixels, so `0.06em`
+  at 11px becomes `0.66`
+- Tabular figures (`FontFeature.tabularFigures()`) — makes every digit the
+  same width so a running clock (`00:16`) doesn't wobble sideways as it
+  counts
+- Shared components (`widgets/ui.dart`): `PillButton`, `RoundAction`,
+  `InfoChip`, `SectionLabel`, all built on one `Pressable` that gives every
+  control the same press-to-shrink feedback (`AnimatedScale`), a pointer
+  cursor and keyboard activation (`FocusableActionDetector`), and a
+  screen-reader label (`Semantics`)
+
+## Listening feedback from amplitude alone (`SessionController._onAmplitude`)
+
+The app only has loudness in real time — real pitch/chord/key detection
+still happens after you stop (Basic Pitch isn't a streaming model here).
+Two small, honest techniques get real-time *feel* without pretending to
+detect more than loudness:
+
+- **Peak (not beat) detection**: a rising edge above a loudness threshold
+  (curved amplitude crossing up through ~0.5, not re-firing within a
+  quarter second) is treated as "a hit" (`Scene.lastPeakAt`) — approximate,
+  reactive to loudness, explicitly *not* a real beat grid
+- **Silence as a signal**: tracking "seconds since the last loud sample"
+  (`_lastLoudAt`) is enough to auto-stop a recording after it's gone quiet
+  for 3 s (once it's at least 10 s long) — and the listening screen's hint
+  line only mentions that once it's actually true
+- The acoustic stream (`widgets/acoustic_stream.dart`) draws those same
+  40 ms loudness samples as bars, averaged in groups of three — a
+  depiction of what the mic actually heard, not a decorative equalizer
+
+## The mascot (`widgets/mascot/`)
+
+- Drawn to the reference sheet's measurements: the painter works in a
+  fixed 220 × 200 "design box" whose numbers (body 84 × 142, eyes 18.5
+  off-center, a three-stroke grille, a 52-radius stand arc) were measured
+  off `Inpiration/Mascot States and Emotions Sheet.png`; `canvas.scale`
+  maps that box onto whatever size the widget is. Change the size, the
+  proportions can't drift
+- A pure mood function (`mascot_mood.dart`): `moodFor(phase, now,
+  hasError, lastTapAt, settleStart, playing, keyConfidence, ...)` returns
+  one of the sheet's states. No canvas, no animation — so it's unit tested
+  directly (`test/mascot_mood_test.dart`) and can only ever show a mood
+  something real caused (an error → surprised, a clear key → excited, 30 s
+  untouched → sleepy)
+- Timestamps instead of animation controllers: each mood's motion
+  (breathing, bouncing, swaying, notes drifting) is computed from
+  `now` and `since` (seconds since the mood started). Switching mood swaps
+  the eyes behind a 0.18 s blink, so changes feel organic rather than
+  snapping
+- `canvas.save()` / `translate` / `rotate` / `scale` / `restore()` —
+  tilting and squashing the body around its *base* (so it leans in its
+  cradle) by moving the origin there first, transforming, then moving
+  back
+- `canvas.drawArc` — the stand is an arc of a circle, a little more than
+  a half circle so the tips curl up beside the body
+- Reduce Motion: `MediaQuery.disableAnimations` makes the painter hold each
+  mood's resting pose
+- Programmatic audio synthesis (`scripts/generate_splash_chime.py`): a
+  sine wave sampled at 44.1kHz, scaled to 16-bit PCM integers, and wrapped
+  in a WAV header — the splash's three-note chime, which the mascot now
+  "sings" along to (sleepy → singing → eyes open)
+
+## The vocal contour (`widgets/contour/`)
+
+- Layout as a pure, tested class (`ContourLayout`): time → x, MIDI pitch
+  → y, note → pill rectangle, tap point → note. The painter and the tap
+  handler both use it, so what you see and what you can tap can't disagree
+- Fitting the pitch range to the notes (`note_range.dart`'s
+  `fitPitchRange`) rather than the raw min/max, so one stray detection
+  doesn't squash every other note into a thin band
+- Density-aware labels: pills are widened to fit their note name only when
+  every note can have one without overlapping (`pillFloor`); in a dense
+  take the pills stay narrow and only the sounding note is labelled
+- `Path.computeMetrics()` / `extractPath` — how the dashed melody thread
+  is drawn: walk along the curve's length and draw every other short
+  stretch
+- `Curves.easeOutBack` — overshoots its target before settling; the notes
+  "pop" into place one after another when results land
+
+## The edge fluid field (`widgets/fluid_field.dart`)
+
+A liquid/metaball-style background hugging the top and side edges of the
+screen, approximating the look of a WebGL prototype (`Inpiration/
+ferroflow_music.html`) without porting its fragment shader.
+
+- **Why not a real fragment shader**: the prototype renders via a
+  per-pixel GLSL loop over dozens of line-segment "spikes." This app has
+  never used `dart:ui`'s `FragmentProgram`/`FragmentShader` and only runs
+  via Flutter web (CanvasKit) — porting a nested, uniform-bound-loop GLSL
+  shader into Skia's SkSL subset with no prior art in this codebase was
+  judged more risk than it was worth for a visual that's explicitly meant
+  to be tested and iterated on quickly
+- **Two dead ends before landing on the field-math approach, both worth
+  knowing about since they're easy to reach for again**:
+  1. Many small blurred, additively-summed capsule shapes
+     (`MaskFilter.blur` + `BlendMode.plus`), sharpened back with a
+     contrast `ColorFilter.matrix` — chasing the prototype's metaball
+     look by *rendering trick* rather than by its actual math. Failed
+     silently: a Gaussian blur conserves *total* alpha but spreads it
+     over an area roughly proportional to the blur radius squared, so a
+     small or short shape's *peak* intensity drops fast as blur radius
+     grows. At idle the spikes were short enough that blurring then
+     thresholding them left literally nothing visible.
+  2. One filled `Path` (screen edge as the outer boundary, a
+     noise-driven wavy curve as the inner one) with a resting
+     `MaskFilter.blur` left on for softness. This fixed visibility
+     (a filled polygon is always visible, no threshold to tune) but
+     looked wrong in a different way: a uniform hazy band, not distinct
+     organic blobs — the blur was doing all the shape-defining work
+     instead of the field math, so there was nothing underneath to
+     actually look like liquid fingers.
+
+  The shipped version keeps dead-end 2's *rendering* (one filled path,
+  smoothed by a quadratic bezier through each pair of sample midpoints) but
+  replaces *where the shape comes from*: [`fieldLengthAt`] sums the same
+  `radius² / (distance² + 1)`-style falloff the prototype's shader sums
+  per pixel, just once per rim sample instead of once per pixel — twelve
+  Gaussian bumps (one per pitch-class position around the rim), each
+  with its own independently-drifting amplitude, summed and passed
+  through a saturating curve (`1 - exp(-sum * gain)`) so overlapping
+  bumps blend into a taller, wider merged lobe instead of just adding
+  past 1 and clipping flat. No blur anywhere — the organic, merging
+  character comes entirely from the field summation; the only smoothing
+  is the bezier interpolation between samples, for a crisp liquid edge
+  rather than a soft glow
+- **Arc-length, not angle, parameterization** for the rim the inner curve
+  is measured from (`edgeAnchor`/`edgeInward`): the prototype places its
+  12 spikes by angle around a full circle, which is fine when every
+  angle is in play. Once the bottom of the screen is excluded, angle-
+  slicing would bunch points at the two remaining corners; walking a
+  fixed arc-length around the left-top-right rim instead keeps them
+  evenly spaced
+- **Tapering to a point at the bottom corners, not a flat cut**
+  (`edgeTaper`): a first version stopped `edgeAnchor`/`edgeInward`
+  themselves at `size.height * (1 - fluidBottomReserve)`, so the rim
+  simply didn't exist below that line — visually an abrupt flat cut
+  with a sharp corner where the band ended, which reads as a container,
+  not a liquid. Now the rim runs the *entire* edge, all the way to the
+  true bottom-left/bottom-right corners, and `edgeTaper` instead scales
+  each point's *reach* down to 0 as it nears either end (eased with an
+  exponent > 1 for a fuller, rounder taper rather than a thin wedge) —
+  so the inner (wavy) boundary simply converges onto the outer boundary
+  (the screen's own edge) right at the corner. There's no separate "end
+  cap" to draw; the shape just naturally pinches to a point, the way a
+  real drop of liquid running down an edge would thin out rather than
+  stopping square
+- **The header bar is fluid too** (`topInset`, `headerFill`): the painter
+  fills a solid band across the top of the canvas and starts the field's
+  own rim below it, so the bar and the walls are one shape with one
+  gradient, not a bar sitting on top of a separate effect. During the
+  intro the band's height eases from 0 to full (`headerFill`) — the
+  liquid "pours" into the header — and the header's title and button
+  only fade in once it's mostly full (`headerContentReveal`), so the
+  fluid is what reveals them. Same pure `(scene, now)` style as the rest
+  of the file: no new state, just one more function of the intro time
+- **A small fillet at the top two corners** (`_topCornerRadius`, drawn
+  via `quadraticBezierTo` the same way a rounded-rect corner is built):
+  the only place the fluid's outer boundary still has to touch an
+  actual geometric corner (where the screen's own top edge meets its
+  sides) — even there, nothing about a fluid is a perfect right angle
+- **The rim wraps, so distance must too**: `fieldLengthAt` measures each
+  bump's distance from a sample point as
+  `min((t - center).abs(), 1 - (t - center).abs())` — without the
+  second term, positions near `t=0` and `t=1` (which are actually right
+  next to each other, both near the bottom-of-left-edge/
+  bottom-of-right-edge seam) would see each other as maximally far
+  apart instead of adjacent, putting a visible seam where there
+  shouldn't be one
+- **Energy tied to live volume, continuously — two earlier attempts
+  missed this**: version 1 drove every spike's amplitude from continuous
+  noise the whole time, with no connection to the actual recording at
+  all — "a generic wave throughout the fluid." Version 2 fixed that by
+  keeping every spike at a calm floor until `Scene.lastPeakAt` fired (a
+  discrete "loudness just crossed a threshold" event, the same signal
+  already driving the mascot's listening bob), at which point one
+  randomly-chosen spike got a pronounced rise-then-decay pulse — tied to
+  the recording, but still read as an isolated blip: a held, sustained
+  note should keep the fluid pulsating for as long as it's held, not
+  fire once and go quiet. `_recordingAmplitude` now instead scales a
+  continuous organic wave (the same "two unrelated sines multiplied"
+  shape as `_idleAmplitude`, blended from two phase-shifted terms)
+  directly by `liveVolume` — `Scene.live`'s own trailing average, the
+  exact "how loud right now" signal the acoustic stream's "now" dot
+  reads too (`liveVolume`, a shared top-level function in
+  `session/scene.dart`, so both read the same number the same way). Held loud input keeps
+  pulsating the whole time it's held and scales with its own loudness;
+  quieter input pulses less; true silence (`liveVolume` at or near 0)
+  locks every spike to an exact, motionless floor — not asymptotically
+  approaching stillness, genuinely stagnant. Each spike's own phase
+  offset still shifts independently over time, so which spikes are
+  pulsing hardest at any instant keeps moving around the rim — that's
+  where the "randomness in where" from the earlier version survives,
+  now layered on a magnitude that's honestly driven by the audio rather
+  than driving the whole effect by itself
+- **Staggered entrance, reusing `Scene.introStart`**: rather than a new
+  timestamp field, the fluid's grow-in reuses `Scene.introStart`/
+  `introDuration`, set when the session screen first appears. Each rim point's growth is
+  offset by a small, position-based stagger so the band rises unevenly
+  around the rim (like liquid actually would) instead of every point
+  snapping to life in lockstep
+
+**Polish pass — droplets** (after you said the shipped version still
+"looked cheap and unfinished," a first attempt also added a per-vertex
+highlight mesh and a meniscus edge stroke via `Canvas.drawVertices` —
+reverted in the same sitting after you looked at it and said it was
+worse, not better; only the droplets below survived that pass):
+
+- **Droplets reuse `Scene.lastPeakAt` as a pure trigger, decoupled from
+  the shape itself**: the fluid's own shape is driven by the continuous,
+  volume-scaled wave in `_recordingAmplitude` — there's no single
+  "moment" left in that signal to spawn a one-off effect from. Rather
+  than inventing new state, `activeDroplet` reuses `Scene.lastPeakAt`
+  (a single timestamp, not a history — the same field the mascot's own
+  peak bob already reads) purely to decide *when* to show one droplet,
+  independent of how the fluid's own length is computed — a small
+  example of one `Scene` field serving two unrelated, independently-
+  tunable effects without coupling them together
+
+**Staying on screen — settling instead of vanishing, note-wise playback
+pulses** (you asked for the fluid to stay a recognizable, persistent part
+of the app rather than something that only shows up while recording):
+
+- **Reach, not opacity, is what "recedes"**: the fluid used to fade to
+  fully transparent 0.5s into `Phase.analyzing` and stay invisible for
+  `Phase.settled`. Fading alpha to 0 reads as the fluid *disappearing*;
+  shrinking how far it's allowed to reach inward (`reachScale`) instead
+  reads as it *settling back toward the edges* — the same shape-based
+  idiom this file already uses everywhere else (`edgeTaper` shrinks
+  reach near the bottom corners the same way), rather than introducing
+  a second, unrelated "fade it out" mechanism just for phase changes
+- **The settle easing rides on timing this codebase already has**:
+  `reachScale` eases from full reach down to its smaller settled value
+  over 0.6s from `Scene.analyzeStart`. `SessionController` already holds
+  `Phase.analyzing` for at least ~1.6s (`_minAnalyzeSeconds`) before
+  settling — both comfortably longer than that 0.6s — so by
+  the time `Phase.settled` actually begins, the reach has already
+  finished easing down with no special-casing needed for the hand-off
+- **Pitch class *is* the rim position**: `_playbackAmplitude` doesn't
+  need any new geometry to put "12 notes on 12 points of the fluid" —
+  the file already has 12 evenly-spaced rim positions (one per spike),
+  so pitch class `k` (0=C..11=B) just *is* spike index `k`, the same way
+  the reference prototype maps pitch classes onto clock positions
+  (`Inpiration/ferroflow_music.html`'s `slotOf`)
+- **One "is this sounding" convention**: `scene.playingAll &&
+  playhead != null && playhead >= note.startTime && playhead <=
+  note.endTime`, the same test the contour uses to light a pill. Looping every note and taking the *max* envelope per pitch class means
+  several simultaneously-sounding notes (a chord) each light up their
+  own spike automatically — no separate chord-aware code path needed
+
+**Making the playback pulses feel musical, not rigid** (after the first
+version's pulses read as too big and too mechanically on/off):
+
+- **A release phase that spills past the note's own boundary, on
+  purpose**: the first version's envelope just stopped being considered
+  the instant `playhead > note.endTime` — a real cutoff, not a fade.
+  `_noteEnvelope` now keeps easing down for `_noteRelease` seconds
+  *after* `endTime`, and the loop in `_playbackAmplitude` had to widen its own bound to match
+  (`note.endTime + _noteRelease`) or the release tail would simply never
+  be reached in the first place — the envelope and the code deciding
+  whether to even evaluate it have to agree on where a note's influence
+  actually ends
+- **Easing curves as a stand-in for inertia, not a literal spring**: the
+  reference prototype's own ripple physics (`step()` in `Inpiration/
+  ferroflow_music.html`) is a real spring/damper integrator, which needs
+  state carried across frames (position *and* velocity). Every function
+  in this file is deliberately a pure function of `(t, now, scene)` with
+  no history — adding a real spring would be the first exception to
+  that. `Curves.easeOutCubic`/`easeInCubic` on the attack/release get
+  most of the *feel* (gradual, never snapping) without that
+  architectural jump; a genuine integrator is the fallback if easing
+  curves alone don't read as weighty enough
+- **A little per-note timing jitter reads as "alive"**: `_noteTimingJitter`
+  (the same `sin(x)*43758.5453`-fraction hash this file already uses for
+  `_hashedRimPosition`) nudges each note's own attack/release duration by
+  ±15%, seeded off that note's `startTime` so it's stable rather than
+  re-rolled every frame. Small, but it's the difference between every
+  pop looking like a mechanically identical copy of the last one and
+  each one landing with its own slightly different timing
+- **A shared resting baseline removes a hidden snap**: `_playbackAmplitude`
+  used to return a literal `0.0` for every spike the instant
+  `scene.playingAll` was false→true (or the reverse), with only
+  individual notes' own eased envelopes raising it back up — so the
+  field's *resting* level itself silently depended on whether playback
+  happened to be running, and pressing play (or playback finishing)
+  changed it in one frame with no easing at all. It now always starts
+  from the same `_idleAmplitude` ripple idle/analyzing already use,
+  whether or not anything is playing, with a sounding note's envelope
+  only ever raising a spike *above* that shared floor via `math.max` —
+  nothing left to snap, because both sides of the flip already agree on
+  the resting value
 
 ## Talking to the backend
 
@@ -41,12 +371,18 @@ Needed to read `main.dart` and the screens.
   alongside a JSON-returning API
 - What FastAPI is doing: routing a `POST /analyze` request to a Python
   function, validating input, returning a JSON response
+- CORS (Cross-Origin Resource Sharing) — why the backend needs
+  `CORSMiddleware` for the Flutter *web* build (served from a different
+  port) to be allowed to call it; not needed for the native iOS/Android app
 - Running a local server: `uvicorn`, `localhost`, ports, and why the iOS
-  Simulator can reach `localhost` directly (a physical phone can't, and
-  would need your machine's LAN IP)
+  Simulator (and a web build in your own browser) can reach `localhost`
+  directly, while a physical phone needs your machine's LAN IP
 - Python virtual environments and `pip install -r requirements.txt`
+- Loading a model once at process startup (`main.py`'s `lifespan` +
+  warm-up request) instead of per-request — a general web-server pattern
+  for anything expensive to initialize, not specific to ML
 
-## The ML side (Basic Pitch, today and going forward)
+## Note recognition: an actual ML model (Basic Pitch)
 
 - What "audio-to-MIDI transcription" means: turning a raw waveform into
   discrete notes (pitch + start/end time), as opposed to just classifying
@@ -60,18 +396,79 @@ Needed to read `main.dart` and the screens.
 - Onset/frame/pitch-bend outputs and confidence scores — Basic Pitch's
   model doesn't just say "this note happened," it scores how confident it
   is, and separately detects *when* a note starts (onset) vs. that a note
-  is *sustained* (frame) — worth understanding since it explains the
-  shape of the JSON the backend returns
-
-### Forward-looking (not needed yet, for later slices)
-
+  is *sustained* (frame)
 - Convolutional Neural Networks (CNNs) — Basic Pitch's model architecture,
   worth learning once you're ready to look inside the model rather than
   treat it as a black box
-- Key/scale-detection algorithms, e.g. the Krumhansl-Schmuckler
-  key-finding algorithm — relevant once we build the scale/key-recognition
-  slice; this is more classical music-theory-informed statistics than
-  deep learning
-- Chord recognition from note sets — mapping intervals between
-  simultaneous notes to chord names; a rules/lookup problem more than an
-  ML one, relevant for the next slice after this
+
+## Key and chord detection: NOT machine learning (`backend/app/harmony.py`)
+
+Worth being explicit about this distinction: nothing below is a trained
+model. It's classical music-theory algorithms and signal-processing
+techniques, written out as ordinary code.
+
+- Pitch class / chroma vectors — collapsing notes to "which of the 12
+  pitches is sounding," ignoring octave; the basis for both key and chord
+  detection (`_chroma()`)
+- The Krumhansl-Schmuckler key-finding algorithm — correlates the chroma
+  against fixed, empirically-measured "key profiles" (how strongly each
+  scale degree is felt to belong to a key); used via `music21`'s
+  `stream.analyze("krumhansl")`, not trained by this project
+- Chord template matching — scoring the chroma at each moment against a
+  fixed set of chord shapes (root + quality, e.g. "C major" = pitch
+  classes 0, 4, 7) rather than recognizing a chord as a single learned
+  pattern
+- The Viterbi algorithm — dynamic programming over a sequence of
+  per-frame guesses to find the single most likely *path* through time,
+  penalizing rapid switching so a chord holds steady instead of
+  flickering frame to frame; the same core technique behind classic
+  speech recognition and other hidden-Markov-style problems
+- Roman numeral analysis — naming a chord by its scale degree and
+  function within a key (e.g. "V7" = the dominant seventh), rather than
+  just its absolute name; `music21` does this spelling given the chord
+  and the detected key
+- `music21` — the Python music-theory library doing the key-profile
+  correlation and Roman-numeral spelling; worth skimming its docs to see
+  what else it can do
+
+## Explaining the music in plain language (`backend/app/explain.py`)
+
+- Why this is rule-based rather than an LLM call (for now): deterministic,
+  no API key or per-request cost, and keeps the app usable offline/free —
+  see the "Forward-looking" note below for where an LLM mode would plug in
+- Regular expressions (`re` module) — used to parse a Roman numeral string
+  like `"ii7"` or `"bVII"` down to its scale degree
+- Mapping scale degrees to function (tonic/supertonic/mediant/
+  subdominant/dominant/submediant/leading tone) — the standard
+  music-theory vocabulary for "what role does this chord play"
+- Cadences — recognizable chord-pair endings (authentic V–I, plagal
+  IV–I, deceptive V–vi, half cadence ending on V) that give music a sense
+  of resolution (or deliberately withheld resolution)
+
+## Testing
+
+- `pytest` (`backend/tests/`) — the backend's chord/key/explanation logic
+  is tested directly against hand-built note/chord data, without needing
+  real audio or the ML model
+- `flutter test` (`app/test/`) — Dart model parsing (`Analysis.fromJson`
+  and friends), the mascot's mood rules, the contour geometry and the
+  fluid field math are all tested as plain functions, independent of any
+  widget
+- Rendering a screen in a widget test: pump the real widget tree around a
+  fake controller, advance time with `tester.pump(duration)`, and save the
+  frame with `matchesGoldenFile` (`--update-goldens`). Load the real fonts
+  first with `FontLoader`, or every glyph renders as a box
+- Red-green TDD — writing a test that fails for the right reason *before*
+  writing the code that makes it pass, used for both `explain.py` and the
+  Dart models above
+
+## Forward-looking (not built yet)
+
+- **LLM-based explanations** (e.g. Gemini) as a richer alternative to the
+  rule-based templates above, likely gated behind a "mode" so the free
+  rule-based path stays the default — see the `explanation` field's shape
+  in `main.py`, designed to leave room for this without reshaping
+- **Distinct scale/mode detection** — today "key" and "scale" are the same
+  thing (major/minor only, via Krumhansl-Schmuckler); detecting modes
+  (Dorian, Mixolydian, etc.) or non-diatonic scales would be a separate
+  step

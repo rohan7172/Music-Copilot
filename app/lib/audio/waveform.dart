@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../models/note.dart';
+
 /// A compact amplitude envelope of a recording, normalized to 0..1.
 class Waveform {
   Waveform(this.envelope, this.duration);
@@ -101,6 +103,23 @@ class Waveform {
       envelope[b] = peak;
     }
     return Waveform(normalizeEnvelope(envelope), frames / sampleRate);
+  }
+
+  /// Builds a synthetic envelope from detected notes rather than decoded
+  /// samples, for formats (e.g. MP3/M4A) this can't decode directly. Louder
+  /// where more notes sound at once, zero where none do.
+  static Waveform fromNoteActivity(List<Note> notes, double duration, {int buckets = 800}) {
+    final envelope = List<double>.filled(buckets, 0);
+    if (duration > 0) {
+      for (final n in notes) {
+        final from = (n.startTime / duration * buckets).floor().clamp(0, buckets - 1);
+        final to = (n.endTime / duration * buckets).ceil().clamp(from + 1, buckets);
+        for (var b = from; b < to; b++) {
+          envelope[b] += n.confidence;
+        }
+      }
+    }
+    return Waveform(normalizeEnvelope(envelope), duration);
   }
 }
 

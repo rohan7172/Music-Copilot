@@ -19,3 +19,6 @@ app/.idea/
 
 # macOS
 .DS_Store
+
+# dev.sh logs
+.dev/

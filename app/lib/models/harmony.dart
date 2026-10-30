@@ -1,0 +1,149 @@
+import 'note.dart';
+
+/// The key the backend detected, e.g. "C major".
+class MusicKey {
+  MusicKey({required this.name, required this.tonic, required this.confidence});
+
+  factory MusicKey.fromJson(Map<String, dynamic> json) {
+    return MusicKey(
+      name: json['name'] as String,
+      tonic: json['tonic'] as String,
+      confidence: (json['confidence'] as num).toDouble(),
+    );
+  }
+
+  final String name;
+
+  /// The tonic note, e.g. "G" or "F#" — a key's identity, independent of
+  /// mode. Used to pick a consistent color for the key (see KeyColor).
+  final String tonic;
+
+  final double confidence;
+}
+
+/// A chord the backend found, spanning [startTime]..[endTime] seconds.
+class Chord {
+  Chord({
+    required this.name,
+    required this.roman,
+    required this.notes,
+    required this.pitchClasses,
+    required this.startTime,
+    required this.endTime,
+  });
+
+  factory Chord.fromJson(Map<String, dynamic> json) {
+    return Chord(
+      name: json['name'] as String,
+      roman: json['roman'] as String,
+      notes: (json['notes'] as List<dynamic>).cast<String>(),
+      pitchClasses: (json['pitch_classes'] as List<dynamic>).cast<int>(),
+      startTime: (json['start_time'] as num).toDouble(),
+      endTime: (json['end_time'] as num).toDouble(),
+    );
+  }
+
+  /// Display name, e.g. "Am" or "G7".
+  final String name;
+
+  /// Function in the key, e.g. "vi" or "V7".
+  final String roman;
+
+  /// Chord tones, spelled for the key, e.g. ["A", "C", "E"].
+  final List<String> notes;
+
+  /// The same tones as pitch classes (C = 0 ... B = 11).
+  final List<int> pitchClasses;
+
+  final double startTime;
+  final double endTime;
+
+  /// Whether [note] is one of this chord's tones and sounds during it.
+  bool contains(Note note) =>
+      pitchClasses.contains(note.midiPitch % 12) &&
+      note.startTime < endTime &&
+      note.endTime > startTime;
+}
+
+/// A plain-language explanation of one chord's role in the key, e.g.
+/// "G — the V chord, dominant: tension that pulls back toward the tonic".
+class ChordExplanation {
+  ChordExplanation({required this.text});
+
+  factory ChordExplanation.fromJson(Map<String, dynamic> json) {
+    return ChordExplanation(text: json['text'] as String);
+  }
+
+  final String text;
+}
+
+/// One piece of the overall summary sentence. A segment that names a
+/// specific chord carries [chordIndex] (that chord's position in
+/// [Analysis.chords]), making it a candidate for a tappable reference; plain
+/// prose segments carry null.
+class SummarySegment {
+  SummarySegment({required this.text, this.chordIndex});
+
+  factory SummarySegment.fromJson(Map<String, dynamic> json) {
+    return SummarySegment(
+      text: json['text'] as String,
+      chordIndex: json['chord_index'] as int?,
+    );
+  }
+
+  final String text;
+  final int? chordIndex;
+}
+
+/// A plain-language summary of the key and progression, plus a matching
+/// explanation for each chord in [Analysis.chords].
+class Explanation {
+  Explanation({required this.summary, required this.chords});
+
+  factory Explanation.fromJson(Map<String, dynamic> json) {
+    return Explanation(
+      summary: [
+        for (final s in json['summary'] as List<dynamic>)
+          SummarySegment.fromJson(s as Map<String, dynamic>),
+      ],
+      chords: [
+        for (final c in json['chords'] as List<dynamic>)
+          ChordExplanation.fromJson(c as Map<String, dynamic>),
+      ],
+    );
+  }
+
+  final List<SummarySegment> summary;
+  final List<ChordExplanation> chords;
+}
+
+/// Everything /analyze returns for a recording.
+class Analysis {
+  Analysis({
+    required this.notes,
+    required this.key,
+    required this.chords,
+    required this.explanation,
+  });
+
+  factory Analysis.fromJson(Map<String, dynamic> json) {
+    final key = json['key'];
+    return Analysis(
+      notes: [
+        for (final n in json['notes'] as List<dynamic>)
+          Note.fromJson(n as Map<String, dynamic>),
+      ],
+      key: key == null ? null : MusicKey.fromJson(key as Map<String, dynamic>),
+      chords: [
+        for (final c in (json['chords'] as List<dynamic>? ?? const []))
+          Chord.fromJson(c as Map<String, dynamic>),
+      ],
+      explanation: Explanation.fromJson(json['explanation'] as Map<String, dynamic>),
+    );
+  }
+
+  final List<Note> notes;
+  final MusicKey? key;
+  final List<Chord> chords;
+  final Explanation explanation;
+}
