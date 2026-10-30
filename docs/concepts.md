@@ -253,6 +253,67 @@ detect more than loudness:
   sequence needs to animate and then stop (the mascot's grow-and-blink
   in `mascot.dart`, then the line's `reveal` picking up right after)
 
+## The edge fluid field (`widgets/fluid_field.dart`)
+
+A liquid/metaball-style background hugging the top and side edges of the
+screen, approximating the look of a WebGL prototype (`Inpiration/
+ferroflow_music.html`) without porting its fragment shader.
+
+- **Why not a real fragment shader**: the prototype renders via a
+  per-pixel GLSL loop over dozens of line-segment "spikes." This app has
+  never used `dart:ui`'s `FragmentProgram`/`FragmentShader` and only runs
+  via Flutter web (CanvasKit) — porting a nested, uniform-bound-loop GLSL
+  shader into Skia's SkSL subset with no prior art in this codebase was
+  judged more risk than it was worth for a visual that's explicitly meant
+  to be tested and iterated on quickly
+- **The "goo" technique instead**: draw several blurred, additive capsule
+  shapes (`MaskFilter.blur` + `Paint.blendMode = BlendMode.plus`), then
+  sharpen the *merged* alpha edge with a contrast `ColorFilter.matrix` —
+  stock `Canvas`/`Paint` APIs, the same blur primitive already behind
+  `BoxShadow.blurRadius` elsewhere in this app, just composited by hand
+  instead of declared on a widget
+- **`saveLayer`, twice, nested**: the inner `saveLayer` isolates
+  `BlendMode.plus` so the spikes sum against each other and a
+  transparent backdrop, not against whatever the real canvas (lines,
+  mascot) already drew behind this painter in z-order — without it,
+  "additive" would mean "additive against the app's actual background,"
+  which looks wrong. The outer `saveLayer`'s `colorFilter` only applies
+  on `restore()`, which is what lets it sharpen the *already-merged*
+  alpha rather than each spike individually
+- **`ColorFilter.matrix`'s offset is 0–255, not 0–1** — unlike the rest
+  of this app's color math (`Color.withValues(alpha: ...)`), the 5th
+  column of a `ColorFilter.matrix` is in byte space. Getting this wrong
+  (treating `bias` as a 0–1 value) is the single most common mistake
+  with this API
+- **Arc-length, not angle, parameterization** for the edge the spikes
+  anchor to (`edgeAnchor`/`edgeInward`): the prototype places its 12
+  spikes by angle around a full circle, which is fine when every angle
+  is in play. Once the bottom of the screen is reserved for a future tab
+  bar, angle-slicing would bunch points at the two remaining corners;
+  walking a fixed arc-length around the left-top-right rim instead keeps
+  them evenly spaced
+- **The bottom reservation is geometric, not a clip**: `edgeAnchor` never
+  produces a point below `size.height * (1 - fluidBottomReserve)` in the
+  first place, rather than drawing a full field and cutting off the
+  bottom after the fact (which would risk a visible seam at the cut)
+- **Randomized, not audio-driven, while recording** — an explicit,
+  named scope cut: this step is about proving the visual reads as
+  liquid, not about pitch accuracy. `recordingLength` reuses the same
+  "two unrelated sines multiplied" noise trick as `ribbonWobbleY`
+  (continuous, so no extra smoothing is needed to avoid looking
+  jittery), rather than a literal `Random()` call or real pitch
+  detection. A later step can swap this one function for something
+  reading `Chord.pitchClasses`/`startTime`/`endTime` without touching
+  anything else in the file
+- **Staggered entrance, reusing `Scene.introStart`**: rather than a new
+  timestamp field, the fluid's grow-in reuses the same `introStart`/
+  `introDuration` the mascot's wake-in and the line's `reveal` already
+  use, so all three land in the same window. Each spike's growth is
+  offset by a small, index-based stagger so the rim rises unevenly
+  (like liquid actually would), while blur/contrast separately ramp from
+  soft-and-diffuse to the resting sharp edge over the same window —
+  two different "progress" readings of one timestamp, not two fields
+
 ## Talking to the backend
 
 - REST API basics — HTTP methods (`POST`), status codes, JSON as the data

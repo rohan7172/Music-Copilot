@@ -182,7 +182,7 @@ class SceneLayout {
 const _ribbonPhase = [0.0, 1.7, 3.4];
 const _ribbonFreq = [1.5, 2.0, 1.2];
 const _ribbonSpeed = [0.55, 0.45, 0.65];
-const _ribbonOffset = [-9.0, 0.0, 9.0];
+const _ribbonOffset = [-15.0, 0.0, 15.0];
 const _ribbonAmpScale = [0.75, 1.0, 0.6];
 
 /// The vertical offset of musical-line strand [index] at position [f] (0..1

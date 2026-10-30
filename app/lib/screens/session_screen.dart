@@ -19,6 +19,7 @@ import '../models/note.dart';
 import '../note_range.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import '../widgets/fluid_field.dart';
 import '../widgets/mascot.dart';
 import '../widgets/score_canvas.dart';
 
@@ -700,23 +701,37 @@ class _SessionScreenState extends State<SessionScreen>
                 _ => size.height * 0.82,
               };
               // The mascot is a large, calm presence at rest, centered where
-              // the waveform will grow from. The moment there's a task
-              // underway it recedes to a small icon paired tightly against
-              // the "KEY" label's own left margin and vertical center (see
-              // ScorePainter._paintKey) — a deliberate small gap, rather
-              // than floating independently and reading as two unrelated
-              // elements that happen to share the top of the screen.
+              // the waveform will grow from. It stays there while recording
+              // too — "just listening," not yet reacting to a task — and
+              // only recedes to a small icon paired tightly against the
+              // "KEY" label's own left margin and vertical center (see
+              // ScorePainter._paintKey) once there's actual analysis
+              // underway, rather than floating independently and reading as
+              // two unrelated elements that happen to share the top of the
+              // screen.
+              final mascotCentered = idle || _phase == Phase.recording;
               const nonIdleMascotSize = 32.0;
               const mascotKeyGap = 8.0;
-              final mascotSize = idle ? 132.0 : nonIdleMascotSize;
-              final mascotLeft = idle
+              final mascotSize = mascotCentered ? 132.0 : nonIdleMascotSize;
+              final mascotLeft = mascotCentered
                   ? (size.width - mascotSize) / 2
                   : canvasMargin - nonIdleMascotSize - mascotKeyGap;
-              final mascotTop = idle
-                  ? statusTop - mascotSize - 4
+              // Recording keeps the mascot at its idle resting spot (idle's
+              // own statusTop), not recording's own lower statusTop — it
+              // doesn't move at all between idle and recording.
+              final idleStatusTop = size.height * 0.70 - 96;
+              final mascotTop = mascotCentered
+                  ? idleStatusTop - mascotSize - 4
                   : size.height * 0.06 - (nonIdleMascotSize - 17) / 2;
               return Stack(
                 children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        painter: FluidFieldPainter(_scene, _clock),
+                      ),
+                    ),
+                  ),
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,

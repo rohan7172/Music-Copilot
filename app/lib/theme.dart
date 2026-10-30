@@ -48,3 +48,11 @@ class LineColors {
   static const orange = Color(0xFFDB9B6C);
   static const all = [purple, green, orange];
 }
+
+/// The edge fluid field's two-hue gradient (see `widgets/fluid_field.dart`)
+/// — a lighter lavender and a deeper purple, both already in the app's
+/// existing accent family rather than a new hue.
+class FluidColors {
+  static const lavender = Color(0xFFB9ADEA);
+  static const deepPurple = Color(0xFF5B4EA6);
+}
