@@ -385,6 +385,39 @@ worse, not better; only the droplets below survived that pass):
   example of one `Scene` field serving two unrelated, independently-
   tunable effects without coupling them together
 
+**Staying on screen — settling instead of vanishing, note-wise playback
+pulses** (you asked for the fluid to stay a recognizable, persistent part
+of the app rather than something that only shows up while recording):
+
+- **Reach, not opacity, is what "recedes"**: the fluid used to fade to
+  fully transparent 0.5s into `Phase.analyzing` and stay invisible for
+  `Phase.settled`. Fading alpha to 0 reads as the fluid *disappearing*;
+  shrinking how far it's allowed to reach inward (`reachScale`) instead
+  reads as it *settling back toward the edges* — the same shape-based
+  idiom this file already uses everywhere else (`edgeTaper` shrinks
+  reach near the bottom corners the same way), rather than introducing
+  a second, unrelated "fade it out" mechanism just for phase changes
+- **The settle easing rides on timing this codebase already has**:
+  `reachScale` eases from full reach down to its smaller settled value
+  over 0.6s from `Scene.analyzeStart`. `_stopRecording` already holds
+  `Phase.analyzing` for at least ~1.6s (`minListen`) and `_replay` for
+  1.4s before settling — both comfortably longer than that 0.6s — so by
+  the time `Phase.settled` actually begins, the reach has already
+  finished easing down with no special-casing needed for the hand-off
+- **Pitch class *is* the rim position**: `_playbackAmplitude` doesn't
+  need any new geometry to put "12 notes on 12 points of the fluid" —
+  the file already has 12 evenly-spaced rim positions (one per spike),
+  so pitch class `k` (0=C..11=B) just *is* spike index `k`, the same way
+  the reference prototype maps pitch classes onto clock positions
+  (`Inpiration/ferroflow_music.html`'s `slotOf`)
+- **Reusing the "is this sounding" convention `ScorePainter` already
+  has**, rather than inventing a second one: `scene.playingAll &&
+  playhead != null && playhead >= note.startTime && playhead <=
+  note.endTime` is copied verbatim from `_paintNotes`/`_paintChords`.
+  Looping every note and taking the *max* envelope per pitch class means
+  several simultaneously-sounding notes (a chord) each light up their
+  own spike automatically — no separate chord-aware code path needed
+
 ## Talking to the backend
 
 - REST API basics — HTTP methods (`POST`), status codes, JSON as the data

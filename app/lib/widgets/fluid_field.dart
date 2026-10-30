@@ -152,7 +152,8 @@ double _recordingAmplitude(int k, double now, Scene scene) {
 /// shader sums per spike (see `Inpiration/ferroflow_music.html`'s field
 /// function), just evaluated once per rim sample instead of once per pixel:
 /// [_spikeCount] Gaussian bumps, one per pitch-class position, each with
-/// its own amplitude (see [_recordingAmplitude]/[_idleAmplitude]), summed
+/// its own amplitude (see [_recordingAmplitude]/[_playbackAmplitude]/
+/// [_idleAmplitude], one per phase), summed
 /// and passed through a saturating curve so overlapping bumps blend into a
 /// taller, wider merged lobe instead of just adding past 1 and clipping —
 /// the same "fingers merge when close" character metaballs have, without
@@ -163,29 +164,84 @@ double fieldLengthAt(double t, double now, Scene scene) {
     final center = k / _spikeCount;
     var dt = (t - center).abs();
     dt = math.min(dt, 1 - dt); // the rim wraps around, so distance wraps too
-    final amp = scene.phase == Phase.recording
-        ? _recordingAmplitude(k, now, scene)
-        : _idleAmplitude(k, now);
+    final amp = switch (scene.phase) {
+      Phase.recording => _recordingAmplitude(k, now, scene),
+      Phase.settled => _playbackAmplitude(k, now, scene),
+      Phase.idle || Phase.analyzing => _idleAmplitude(k, now),
+    };
     sum += amp * math.exp(-(dt * dt) / (2 * _spikeWidthT * _spikeWidthT));
   }
   return (1 - math.exp(-sum * _saturationGain)).clamp(0.0, 1.0);
 }
 
-/// 1 while idle/recording, easing to 0 over the first 0.5s of analyzing (so
-/// the fluid recedes rather than cutting), 0 once settled — Step 2 fills
-/// the settled canvas with a note-wise fluid + chord bubbles instead.
-double _phaseVisibility(Scene scene, double now) {
+const _settledReachScale = 0.45;
+const _settleDuration = 0.6;
+
+/// How far inward the fluid is *allowed* to reach right now, as a
+/// fraction of its normal full reach — 1.0 at idle/recording, easing down
+/// to [_settledReachScale] over [_settleDuration] once analyzing starts,
+/// staying there once settled. This is what makes the fluid "settle back
+/// to the edges" when the user stops recording rather than disappearing:
+/// an earlier version faded it to fully transparent here instead, which
+/// read as the fluid vanishing rather than remaining a persistent part of
+/// the screen. It also keeps the fluid out of the way once notes/chords
+/// are on screen (`ScorePainter`'s own content lives in the same central
+/// area) without a separate, redundant "is there room" check.
+double reachScale(Scene scene, double now) {
   switch (scene.phase) {
     case Phase.idle:
     case Phase.recording:
       return 1.0;
     case Phase.analyzing:
       final start = scene.analyzeStart;
-      if (start == null) return 1.0;
-      return 1.0 - ((now - start) / 0.5).clamp(0.0, 1.0);
+      if (start == null) return _settledReachScale;
+      final t = ((now - start) / _settleDuration).clamp(0.0, 1.0);
+      return 1.0 + (_settledReachScale - 1.0) * Curves.easeOutCubic.transform(t);
     case Phase.settled:
-      return 0.0;
+      return _settledReachScale;
   }
+}
+
+const _noteAttack = 0.1; // seconds, in audio/playhead time, not clock time
+const _playbackActiveAmplitude = 0.9;
+
+/// 0..1: how far into a note's own attack we are, as of [playhead] — a
+/// quick rise then holding at full strength for the rest of the note's
+/// duration, rather than snapping straight to "on."
+double _noteEnvelope(double playhead, double noteStart) {
+  final since = playhead - noteStart;
+  if (since < _noteAttack) {
+    return Curves.easeOut.transform((since / _noteAttack).clamp(0.0, 1.0));
+  }
+  return 1.0;
+}
+
+/// 0..1 how strongly spike [k] is reaching out while settled (replaying
+/// the finished recording). [k] *is* the pitch class (0=C..11=B) — the
+/// same 12 evenly-spaced rim positions this file already has for every
+/// other phase, mapped the way the reference prototype maps pitch classes
+/// onto clock positions (`Inpiration/ferroflow_music.html`'s `slotOf`),
+/// just adapted to this file's rim instead of a full circle. Mirrors the
+/// exact "is this currently sounding" convention
+/// `ScorePainter._paintNotes`/`_paintChords` already use
+/// (`scene.playingAll && playhead != null && playhead >= note.startTime
+/// && playhead <= note.endTime`) rather than inventing a different rule.
+/// Looping every note and taking the max per pitch class means multiple
+/// simultaneously-sounding notes (a chord) each light up their own spike
+/// for free — no separate chord-handling needed. Falls back to the same
+/// calm ripple idle/analyzing already use whenever nothing is actively
+/// playing, so settled-but-paused reads the same as idle instead of
+/// needing a third distinct look.
+double _playbackAmplitude(int k, double now, Scene scene) {
+  final playhead = scene.playhead;
+  if (!scene.playingAll || playhead == null) return _idleAmplitude(k, now);
+  var amp = 0.0;
+  for (final note in scene.notes) {
+    final pc = ((note.midiPitch % 12) + 12) % 12;
+    if (pc != k || playhead < note.startTime || playhead > note.endTime) continue;
+    amp = math.max(amp, _playbackActiveAmplitude * _noteEnvelope(playhead, note.startTime));
+  }
+  return amp.clamp(0.0, 1.0);
 }
 
 /// 0 before rim position [t] has started growing in, 1 once fully grown.
@@ -260,7 +316,8 @@ const _dropletDuration = 0.65;
 ///
 /// Timestamp-driven off [clock], like every other painter in this app — no
 /// `AnimationController`. Reads only [Scene.phase]/[Scene.introStart]/
-/// [Scene.analyzeStart]/[Scene.live]; no new `Scene` fields needed.
+/// [Scene.analyzeStart]/[Scene.live]/[Scene.lastPeakAt]/[Scene.notes]/
+/// [Scene.playhead]/[Scene.playingAll]; no new `Scene` fields needed.
 class FluidFieldPainter extends CustomPainter {
   FluidFieldPainter(this.scene, this.clock) : super(repaint: clock);
 
@@ -270,10 +327,7 @@ class FluidFieldPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final now = clock.value;
-    final visibility = _phaseVisibility(scene, now);
-    if (visibility <= 0) return;
-
-    final maxLen = math.min(size.width, size.height) * _maxLenFraction;
+    final maxLen = math.min(size.width, size.height) * _maxLenFraction * reachScale(scene, now);
 
     Offset innerPoint(double t) {
       final anchor = edgeAnchor(t, size);
@@ -281,7 +335,7 @@ class FluidFieldPainter extends CustomPainter {
       final fraction = fieldLengthAt(t, now, scene);
       final growth = _entranceGrowthAt(now, scene.introStart, t);
       final taper = edgeTaper(t, size);
-      final length = maxLen * fraction * growth * visibility * taper;
+      final length = maxLen * fraction * growth * taper;
       return anchor + inward * length;
     }
 
@@ -320,8 +374,8 @@ class FluidFieldPainter extends CustomPainter {
         Offset.zero,
         Offset(size.width, size.height),
         [
-          FluidColors.lavender.withValues(alpha: _fillAlpha * visibility),
-          FluidColors.deepPurple.withValues(alpha: _fillAlpha * visibility),
+          FluidColors.lavender.withValues(alpha: _fillAlpha),
+          FluidColors.deepPurple.withValues(alpha: _fillAlpha),
         ],
       )
       ..style = PaintingStyle.fill

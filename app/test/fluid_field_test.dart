@@ -2,8 +2,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:music_copilot_app/models/note.dart';
 import 'package:music_copilot_app/widgets/fluid_field.dart';
 import 'package:music_copilot_app/widgets/score_canvas.dart' show Phase, Scene;
+
+Note _note(int midiPitch, double start, double end) => Note(
+  pitch: 'x',
+  midiPitch: midiPitch,
+  startTime: start,
+  endTime: end,
+  confidence: 1,
+);
 
 void main() {
   const size = Size(400, 800);
@@ -146,6 +155,93 @@ void main() {
       const restingFloor = 0.08;
       expect(early, greaterThan(restingFloor + 0.1));
       expect(muchLater, greaterThan(restingFloor + 0.1));
+    });
+
+    test('settled with nothing playing reads the same as idle', () {
+      final settled = Scene()..phase = Phase.settled;
+      final idle = Scene()..phase = Phase.idle;
+      for (var t = 0.0; t <= 1.0; t += 0.1) {
+        expect(fieldLengthAt(t, 2.0, settled), fieldLengthAt(t, 2.0, idle));
+      }
+    });
+
+    test('a sounding note pulses its own pitch class noticeably above an unrelated one', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 1.0
+        ..notes = [_note(60, 0.5, 1.5)]; // midi 60 = C, pitch class 0
+
+      final cSpikeT = 0 / 12; // pitch class 0's own rim position
+      final unrelatedT = 6 / 12; // pitch class 6 (F#), not sounding
+
+      expect(
+        fieldLengthAt(cSpikeT, 1.0, scene),
+        greaterThan(fieldLengthAt(unrelatedT, 1.0, scene)),
+      );
+    });
+
+    test('nothing pulses above idle when playingAll is false, even with a playhead', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = false
+        ..playhead = 1.0
+        ..notes = [_note(60, 0.5, 1.5)];
+      final idle = Scene()..phase = Phase.idle;
+
+      for (var t = 0.0; t <= 1.0; t += 0.1) {
+        expect(fieldLengthAt(t, 1.0, scene), fieldLengthAt(t, 1.0, idle));
+      }
+    });
+
+    test('two simultaneously-sounding notes of different pitch classes both pulse (a chord)', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 1.0
+        ..notes = [
+          _note(60, 0.5, 1.5), // pitch class 0 (C)
+          _note(64, 0.5, 1.5), // pitch class 4 (E)
+        ];
+      final nothingPlaying = Scene()..phase = Phase.settled;
+
+      final cT = 0 / 12;
+      final eT = 4 / 12;
+      expect(fieldLengthAt(cT, 1.0, scene), greaterThan(fieldLengthAt(cT, 1.0, nothingPlaying)));
+      expect(fieldLengthAt(eT, 1.0, scene), greaterThan(fieldLengthAt(eT, 1.0, nothingPlaying)));
+    });
+  });
+
+  group('reachScale', () {
+    test('is full strength at idle and recording', () {
+      expect(reachScale(Scene()..phase = Phase.idle, 5.0), 1.0);
+      expect(reachScale(Scene()..phase = Phase.recording, 5.0), 1.0);
+    });
+
+    test('is already settled-small immediately if analyzing with no analyzeStart recorded', () {
+      // Defensive case: shouldn't really happen in practice (analyzeStart
+      // is always set alongside the phase change), but shouldn't read as
+      // "full reach" either if it somehow did.
+      expect(reachScale(Scene()..phase = Phase.analyzing, 5.0), lessThan(1.0));
+    });
+
+    test('eases from full reach down toward the settled scale across analyzing', () {
+      final scene = Scene()
+        ..phase = Phase.analyzing
+        ..analyzeStart = 10.0;
+      final justStarted = reachScale(scene, 10.01);
+      final midway = reachScale(scene, 10.3);
+      final wellAfter = reachScale(scene, 20.0);
+
+      expect(justStarted, closeTo(1.0, 0.05));
+      expect(midway, lessThan(justStarted));
+      expect(wellAfter, lessThan(midway));
+    });
+
+    test('settles at a constant, smaller reach once truly settled', () {
+      final settled = reachScale(Scene()..phase = Phase.settled, 5.0);
+      expect(settled, lessThan(1.0));
+      expect(settled, reachScale(Scene()..phase = Phase.settled, 99.0));
     });
   });
 
