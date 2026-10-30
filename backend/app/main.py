@@ -1,3 +1,4 @@
+import os
 import tempfile
 import wave
 from contextlib import asynccontextmanager
@@ -5,12 +6,29 @@ from pathlib import Path
 
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import Model, predict
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.explain import explain_progression
-from app.harmony import analyze_harmony, without_overtones
+from app import synth
+from app.harmony import without_overtones
 from app.notes import midi_to_note_name
+from app.pipeline import analyze_notes, suggest
+from app.timing import BeatGrid
+
+
+def _load_env() -> None:
+    """Reads backend/.env (gitignored) for secrets like GEMINI_API_KEY,
+    without overriding anything already set in the environment."""
+    env = Path(__file__).resolve().parent.parent / ".env"
+    if not env.exists():
+        return
+    for line in env.read_text().splitlines():
+        name, sep, value = line.strip().partition("=")
+        if sep and name and not name.startswith("#"):
+            os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_env()
 
 _model: Model | None = None
 
@@ -50,7 +68,15 @@ def health() -> dict:
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile) -> dict:
+async def analyze(
+    file: UploadFile,
+    bpm: float | None = Form(None),
+    first_beat: float | None = Form(None),
+    meter: int = Form(4),
+) -> dict:
+    """Transcribes the audio and suggests progressions for its melody.
+    `bpm` and `first_beat` (seconds) come from the app's click, when one was
+    used; otherwise the beat grid is estimated."""
     if file.content_type is None or not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an audio file")
 
@@ -73,7 +99,28 @@ async def analyze(file: UploadFile) -> dict:
     ]
     notes.sort(key=lambda n: n["start_time"])
     notes = without_overtones(notes)
+    return analyze_notes(notes, bpm=bpm, first_beat=first_beat, meter=meter)
 
-    harmony = analyze_harmony(notes)
-    explanation = explain_progression(harmony["key"], harmony["chords"])
-    return {"notes": notes, **harmony, "explanation": explanation}
+
+@app.post("/harmonise")
+def harmonise_endpoint(body: dict = Body(...)) -> dict:
+    """Re-suggests for an already-transcribed melody, after the user nudges
+    the beat grid (downbeat, tempo, meter) or overrides the key. No audio,
+    no transcription, so it's near-instant."""
+    melody = body.get("melody") or []
+    try:
+        grid = BeatGrid.from_dict(body["grid"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="A grid with bpm and downbeat is required")
+    per_bar = 2 if body.get("per_bar") == 2 else 1
+    return suggest(melody, grid, key=body.get("key"), per_bar=per_bar, use_llm=bool(body.get("use_llm", True)))
+
+
+@app.post("/backing")
+def backing(body: dict = Body(...)) -> Response:
+    """A WAV of a progression's chords, to loop under the user's take."""
+    chords = body.get("chords") or []
+    duration = float(body.get("duration") or max((c["end_time"] for c in chords), default=0))
+    if not chords or duration <= 0:
+        raise HTTPException(status_code=400, detail="chords and a duration are required")
+    return Response(content=synth.render(chords, duration), media_type="audio/wav")

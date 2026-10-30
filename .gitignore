@@ -25,3 +25,6 @@ app/.idea/
 
 # Raw datasets (rebuild derived tables with scripts/)
 backend/data_raw/
+
+# Backend secrets (e.g. GEMINI_API_KEY)
+backend/.env
