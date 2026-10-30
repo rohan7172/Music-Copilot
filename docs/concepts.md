@@ -401,55 +401,124 @@ version's pulses read as too big and too mechanically on/off):
   worth learning once you're ready to look inside the model rather than
   treat it as a black box
 
-## Key and chord detection: NOT machine learning (`backend/app/harmony.py`)
+## Suggesting chords for a melody: the harmoniser (`backend/app/harmoniser/`)
 
-Worth being explicit about this distinction: nothing below is a trained
-model. It's classical music-theory algorithms and signal-processing
-techniques, written out as ordinary code.
+The heart of the app. A hummed tune has no chords in it to *detect*; the
+job is to *suggest* chords that fit. Nothing here is a trained model: it's
+music theory written as scoring rules, a table of habits counted from a
+chord corpus, and a search. That keeps every suggestion explainable.
+
+- **One melody line** (`melody.py`): Basic Pitch reports every note it
+  hears. The "skyline" keeps, at each moment, the highest sounding note,
+  merges repeats and drops blips under 80 ms. The same file routes a take
+  as melody / polyphonic / full mix by how many notes sound at once.
+- **A beat grid** (`timing.py`): bars and beats so the engine knows which
+  notes fall on strong beats. With the app's click it's exact; otherwise
+  tempo comes from an onset *tempogram* (librosa's autocorrelation of
+  "when notes start"), and beat 1 from phrasing: a note right after a long
+  note or rest usually starts a phrase, and phrases start on beat 1.
+  Metric strength: beat 1 > beat 3 > beats 2 and 4 > off-beats.
+- **The Krumhansl-Schmuckler key** — correlating the melody's
+  pitch-class weights against measured "key profiles" (via `music21`),
+  here weighted by note length × beat strength, with the runner-up kept.
+- **How a note sits under a chord** (`scoring.classify`): a *chord tone*
+  (full credit), *colour* (a 9th/13th/11th: partial credit, more on a
+  seventh chord than a plain triad), a *passing/neighbour* note (moves by
+  step, not on beat 1: half credit, it's explained by the line), or a
+  *clash* (a long or strong-beat note outside the chord: a penalty).
+- **The score of a whole progression**: melody fit + key fit (out-of-key
+  chords cost more) + a corpus prior (how natural the move is) + root
+  motion (down a fifth is the strongest pull) + cadences (V→I or IV→I at
+  a phrase end) + a penalty for sitting on one chord too long.
+- **Beam search** (`search.py`): trying every progression is impossible
+  (dozens of chords per bar, many bars), so the search keeps only the best
+  ~60 partial progressions after each bar and extends those. Safe and
+  Colourful are the same search with different weights ("profiles");
+  Surprising is Safe plus one or two out-of-key turns that still fit the
+  melody and resolve properly (a secondary dominant should land on its
+  target, a fifth below).
+- **An n-gram corpus prior** (`prior.py`, `scripts/build_progression_prior.py`):
+  676k songs from the Chordonomicon corpus, each section's chords turned
+  into key-relative tokens ("7:maj" is V in any key) and counted as
+  unigrams/bigrams/trigrams. Asking P(next | previous two) uses *backoff*:
+  trust the trigram when there's enough evidence, otherwise the bigram,
+  otherwise how common the chord is overall. It judges chord *families*
+  (V vs V7 count as one), since chord sheets often drop the 7, and it's
+  *blended* 50/50 with textbook functional harmony, because the corpus is
+  mostly pop and would otherwise turn every folk tune into I–IV–I loops.
+  (Chordonomicon is CC BY-NC: fine for this project, not for selling it.)
+- **Holding vs moving**: chord corpora list *changes*, not held bars, so
+  a held chord can't be judged by them; it gets a neutral value instead,
+  and repetition rules decide when holding has gone on too long.
+- **Reasons from the score** (`reasons.py`): each chord's two biggest
+  score terms become sentences ("Your long G becomes the 9th over F"), so
+  an explanation is always true of the choice rather than invented to
+  justify it. Roman numerals and functions (tonic / predominant /
+  dominant, secondary dominants, borrowed chords) come from `vocab.py`.
+
+## An LLM proposes, the engine decides (`backend/app/llm.py`)
+
+- The Bold option comes from Gemini: it gets a compact, factual summary of
+  the tune (notes per bar, strong beats, phrase ends) and proposes
+  adventurous progressions in Roman numerals, as JSON.
+- **Validation**: every proposal is parsed into the engine's chord
+  vocabulary (a regex Roman-numeral parser, `vocab.parse_roman`) and scored
+  with the same terms as the others; any chord that clashes with a long or
+  strong-beat note gets the whole proposal rejected.
+- **Grounded explanation**: a second call gets only the engine's verified
+  facts about each chord (which melody notes are chord tones or colour,
+  its function, how rare it is in the corpus) and writes the "why" in the
+  companion's voice — so the LLM supplies taste and words, never facts.
+- **Graceful fallback**: no `GEMINI_API_KEY` (read from `backend/.env`,
+  gitignored), a timeout, or nothing valid → the corpus option is used.
+  The engine is tested with a stubbed client, so the tests never call Google.
+- Plain `urllib` with JSON in/out rather than an SDK: one less dependency
+  for two HTTP calls.
+
+## Hearing the chords under your take (`backend/app/synth.py`, `SessionController`)
+
+- **Additive synthesis**: each chord is a few sine-based voices (plus two
+  overtones for warmth) in close position around middle C and a bass root
+  below, each with a soft attack and a release that overlaps the next
+  chord so changes don't click; rendered to WAV by `/backing`.
+- **Two players in sync**: the take and the backing are separate
+  `AudioPlayer`s; every play, pause, seek and loop moves both to the same
+  position. Simple, and close enough for short takes (no sample-accurate
+  mixing needed).
+- **A click for an exact grid**: an optional click (`scripts/generate_click.py`,
+  under 30 ms and mostly noise, so if it leaks into the mic Basic Pitch
+  drops it as a blip) plays on a `Timer` while recording; the first
+  click's time is sent with the tempo, so the backend skips guessing.
+- **Nudging without re-recording**: `/harmonise` takes the already
+  transcribed melody plus an edited grid (beat 1 moved, tempo ×2 or ÷2,
+  two chords per bar) and re-suggests in milliseconds.
+
+## Key and chord detection from notes (`backend/app/harmony.py`, legacy)
+
+The original approach: look up which chord the simultaneous notes spell.
+It's the wrong model for a melody and fails on real songs (see the design
+spec), so it's no longer used for suggestions; its pieces (overtone
+removal, the Viterbi smoother) are kept for the song-recognition work.
 
 - Pitch class / chroma vectors — collapsing notes to "which of the 12
-  pitches is sounding," ignoring octave; the basis for both key and chord
-  detection (`_chroma()`)
-- The Krumhansl-Schmuckler key-finding algorithm — correlates the chroma
-  against fixed, empirically-measured "key profiles" (how strongly each
-  scale degree is felt to belong to a key); used via `music21`'s
-  `stream.analyze("krumhansl")`, not trained by this project
+  pitches is sounding," ignoring octave
 - Chord template matching — scoring the chroma at each moment against a
-  fixed set of chord shapes (root + quality, e.g. "C major" = pitch
-  classes 0, 4, 7) rather than recognizing a chord as a single learned
+  fixed set of chord shapes rather than recognising a chord as a learned
   pattern
-- The Viterbi algorithm — dynamic programming over a sequence of
-  per-frame guesses to find the single most likely *path* through time,
-  penalizing rapid switching so a chord holds steady instead of
-  flickering frame to frame; the same core technique behind classic
-  speech recognition and other hidden-Markov-style problems
-- Roman numeral analysis — naming a chord by its scale degree and
-  function within a key (e.g. "V7" = the dominant seventh), rather than
-  just its absolute name; `music21` does this spelling given the chord
-  and the detected key
-- `music21` — the Python music-theory library doing the key-profile
-  correlation and Roman-numeral spelling; worth skimming its docs to see
-  what else it can do
-
-## Explaining the music in plain language (`backend/app/explain.py`)
-
-- Why this is rule-based rather than an LLM call (for now): deterministic,
-  no API key or per-request cost, and keeps the app usable offline/free —
-  see the "Forward-looking" note below for where an LLM mode would plug in
-- Regular expressions (`re` module) — used to parse a Roman numeral string
-  like `"ii7"` or `"bVII"` down to its scale degree
-- Mapping scale degrees to function (tonic/supertonic/mediant/
-  subdominant/dominant/submediant/leading tone) — the standard
-  music-theory vocabulary for "what role does this chord play"
-- Cadences — recognizable chord-pair endings (authentic V–I, plagal
-  IV–I, deceptive V–vi, half cadence ending on V) that give music a sense
-  of resolution (or deliberately withheld resolution)
+- The Viterbi algorithm — dynamic programming over per-frame guesses to
+  find the single most likely *path* through time, penalising rapid
+  switching so a chord holds steady instead of flickering
+- `music21` — the Python music-theory library doing key-profile
+  correlation; worth skimming its docs to see what else it can do
 
 ## Testing
 
-- `pytest` (`backend/tests/`) — the backend's chord/key/explanation logic
-  is tested directly against hand-built note/chord data, without needing
-  real audio or the ML model
+- `pytest` (`backend/tests/`) — the melody, grid, key, harmoniser, LLM
+  validation and synth logic is tested directly on hand-written notes,
+  without real audio or the ML model. `tests/melodies.py` writes
+  public-domain tunes (Twinkle, Ode to Joy, Frère Jacques) as notes, and a
+  "golden" test checks Safe agrees with what musicians would play on most
+  bars
 - `flutter test` (`app/test/`) — Dart model parsing (`Analysis.fromJson`
   and friends), the mascot's mood rules, the contour geometry and the
   fluid field math are all tested as plain functions, independent of any
@@ -459,15 +528,15 @@ techniques, written out as ordinary code.
   frame with `matchesGoldenFile` (`--update-goldens`). Load the real fonts
   first with `FontLoader`, or every glyph renders as a box
 - Red-green TDD — writing a test that fails for the right reason *before*
-  writing the code that makes it pass, used for both `explain.py` and the
-  Dart models above
+  writing the code that makes it pass
 
 ## Forward-looking (not built yet)
 
-- **LLM-based explanations** (e.g. Gemini) as a richer alternative to the
-  rule-based templates above, likely gated behind a "mode" so the free
-  rule-based path stays the default — see the `explanation` field's shape
-  in `main.py`, designed to leave room for this without reshaping
+- **Song uploads**: separating a mix into stems (Demucs), finding beats
+  (Beat This!) and recognising chords from audio (BTC), then showing each
+  part's role instead of every note at once — Parts 2 and 3 of the spec
+- **Style presets**: the corpus prior's blend and genre slices tuned per
+  style (pop, folk, jazz)
 - **Distinct scale/mode detection** — today "key" and "scale" are the same
   thing (major/minor only, via Krumhansl-Schmuckler); detecting modes
   (Dorian, Mixolydian, etc.) or non-diatonic scales would be a separate

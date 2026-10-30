@@ -73,6 +73,7 @@ flutter:
 
   assets:
     - assets/sounds/chime.wav
+    - assets/sounds/click.wav
 
   # Plus Jakarta Sans, the one face the Stitch designs use — bundled so
   # text renders the same everywhere, offline included.

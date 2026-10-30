@@ -12,6 +12,8 @@ MascotMood mood({
   bool playing = false,
   int noteCount = 5,
   double? keyConfidence = 0.9,
+  bool boldSelected = false,
+  double? cadenceAt,
 }) => moodFor(
   phase: phase,
   now: now,
@@ -22,6 +24,8 @@ MascotMood mood({
   playing: playing,
   noteCount: noteCount,
   keyConfidence: keyConfidence,
+  boldSelected: boldSelected,
+  cadenceAt: cadenceAt,
 );
 
 void main() {
@@ -73,6 +77,18 @@ void main() {
   test('playback sings along, over the reveal reaction', () {
     expect(
       mood(phase: Phase.settled, settleStart: 99.5, playing: true),
+      MascotMood.singing,
+    );
+  });
+
+  test('the Bold card gets a curious tilt; a cadence in playback a happy beat', () {
+    expect(mood(phase: Phase.settled, settleStart: 90, boldSelected: true), MascotMood.curious);
+    expect(
+      mood(phase: Phase.settled, settleStart: 90, playing: true, cadenceAt: 99.5),
+      MascotMood.happy,
+    );
+    expect(
+      mood(phase: Phase.settled, settleStart: 90, playing: true, cadenceAt: 90),
       MascotMood.singing,
     );
   });

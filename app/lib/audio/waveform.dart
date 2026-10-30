@@ -28,7 +28,11 @@ class Waveform {
       final v = envelope[i];
       if (v < 0.15) continue;
       var isPeak = true;
-      for (var j = math.max(0, i - window); j <= math.min(n - 1, i + window); j++) {
+      for (
+        var j = math.max(0, i - window);
+        j <= math.min(n - 1, i + window);
+        j++
+      ) {
         if (envelope[j] > v || (envelope[j] == v && j < i)) {
           isPeak = false;
           break;
@@ -69,7 +73,10 @@ class Waveform {
       }
       offset = body + size + (size & 1);
     }
-    if (format == null || dataStart == null || channels == null || channels == 0) {
+    if (format == null ||
+        dataStart == null ||
+        channels == null ||
+        channels == 0) {
       return null;
     }
     final isFloat = format == 3 || (format == 0xFFFE && bits == 32);
@@ -108,12 +115,22 @@ class Waveform {
   /// Builds a synthetic envelope from detected notes rather than decoded
   /// samples, for formats (e.g. MP3/M4A) this can't decode directly. Louder
   /// where more notes sound at once, zero where none do.
-  static Waveform fromNoteActivity(List<Note> notes, double duration, {int buckets = 800}) {
+  static Waveform fromNoteActivity(
+    List<Note> notes,
+    double duration, {
+    int buckets = 800,
+  }) {
     final envelope = List<double>.filled(buckets, 0);
     if (duration > 0) {
       for (final n in notes) {
-        final from = (n.startTime / duration * buckets).floor().clamp(0, buckets - 1);
-        final to = (n.endTime / duration * buckets).ceil().clamp(from + 1, buckets);
+        final from = (n.startTime / duration * buckets).floor().clamp(
+          0,
+          buckets - 1,
+        );
+        final to = (n.endTime / duration * buckets).ceil().clamp(
+          from + 1,
+          buckets,
+        );
         for (var b = from; b < to; b++) {
           envelope[b] += n.confidence;
         }

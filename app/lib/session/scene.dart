@@ -41,7 +41,9 @@ class Scene {
   double? settleStart;
 
   List<Note> notes = const [];
-  List<Chord> chords = const [];
+
+  /// The chosen progression's chords, one per bar (or half bar).
+  List<ProgressionChord> chords = const [];
   MusicKey? key;
 
   /// The note or chord most recently tapped, if any.

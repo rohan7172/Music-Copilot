@@ -29,6 +29,8 @@ class SessionMascot extends StatelessWidget {
           playing: controller.isPlaying,
           noteCount: controller.confidentNotes.length,
           keyConfidence: scene.key?.confidence,
+          boldSelected: controller.progression?.kind == 'bold',
+          cadenceAt: controller.lastCadenceAt,
         );
         return Mascot(
           mood: mood,

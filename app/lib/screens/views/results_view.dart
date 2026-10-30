@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/harmony.dart';
@@ -8,10 +7,11 @@ import '../../widgets/contour/contour_panel.dart';
 import '../../widgets/mascot/session_mascot.dart';
 import '../../widgets/ui.dart';
 
-/// What was heard (Stitch "Note Analysis"): the key and counts up top, the
-/// companion reacting, the notes as a playable contour, the chords as
-/// chips to audition, and the transport. The full plain-language
-/// explanation is one tap away rather than always on screen.
+/// What was heard, and chords that would go with it: the key and beat
+/// grid up top, the companion with one insight, three progression cards
+/// (Safe, Colourful, Bold) to swipe between, the tune as a contour with the
+/// chosen chords above it, and the transport. Playing loops the chosen
+/// progression under the take. Every chord opens its own "why".
 class ResultsView extends StatelessWidget {
   const ResultsView({super.key, required this.controller});
 
@@ -19,11 +19,15 @@ class ResultsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final notes = controller.confidentNotes;
-    if (notes.isEmpty) return _NothingFound(controller: controller);
+    final suggestions = controller.suggestions;
+    if (controller.confidentNotes.isEmpty ||
+        suggestions == null ||
+        suggestions.progressions.isEmpty) {
+      return _NothingFound(controller: controller);
+    }
 
-    final scene = controller.scene;
-    final key = scene.key;
+    final key = suggestions.key;
+    final grid = suggestions.grid;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         Space.margin,
@@ -43,7 +47,7 @@ class ResultsView extends StatelessWidget {
                 children: const [TextSpan(text: 'new take')],
               ),
               const Spacer(),
-              if (key != null) ...[
+              if (key != null)
                 Flexible(
                   flex: 0,
                   child: InfoChip(
@@ -61,51 +65,57 @@ class ResultsView extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (grid != null) ...[
                 const SizedBox(width: Space.sm),
+                InfoChip(
+                  icon: grid.guessed
+                      ? Icons.tune_rounded
+                      : Icons.timer_outlined,
+                  semanticLabel:
+                      '${grid.bpm.round()} beats per minute. Adjust the beat grid',
+                  onTap: () => _showGridSheet(context),
+                  children: [
+                    TextSpan(
+                      text: '${grid.bpm.round()}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: TextStyles.tabular,
+                      ),
+                    ),
+                    const TextSpan(text: ' bpm'),
+                  ],
+                ),
               ],
-              InfoChip(
-                icon: Icons.music_note_rounded,
-                semanticLabel: '${notes.length} notes',
-                children: [
-                  TextSpan(
-                    text: '${notes.length}',
-                    style: const TextStyle(fontFeatures: TextStyles.tabular),
-                  ),
-                ],
-              ),
             ],
           ),
-          const SizedBox(height: Space.md),
-          Center(child: SessionMascot(controller: controller, width: 120)),
-          const SizedBox(height: Space.sm),
-          ValueListenableBuilder<double>(
-            valueListenable: controller.clock,
-            builder: (context, _, _) => Text(
-              _descriptor(),
-              style: TextStyles.labelMd,
+          if (controller.routeNote != null) ...[
+            const SizedBox(height: Space.sm),
+            Text(
+              controller.routeNote!,
+              style: TextStyles.bodySm.copyWith(color: Palette.outline),
               textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: Space.md),
-          ContourPanel(controller: controller),
-          if (scene.chords.isNotEmpty) ...[
-            const SizedBox(height: Space.md),
-            SectionLabel(
-              'chords',
-              trailing: Text(
-                'tap to audition',
-                style: TextStyles.labelSm.copyWith(
-                  color: Palette.outline,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ),
-            const SizedBox(height: Space.sm),
-            ValueListenableBuilder<double>(
-              valueListenable: controller.clock,
-              builder: (context, _, _) => _ChordRow(controller: controller),
+          ],
+          const SizedBox(height: Space.sm),
+          Center(child: SessionMascot(controller: controller, width: 96)),
+          if (suggestions.insight != null) ...[
+            const SizedBox(height: Space.xs),
+            Text(
+              suggestions.insight!,
+              style: TextStyles.labelMd.copyWith(height: 1.4),
+              textAlign: TextAlign.center,
             ),
           ],
+          const SizedBox(height: Space.md),
+          _ProgressionCards(
+            controller: controller,
+            onChordTap: (i) => _showChord(context, i),
+          ),
+          const SizedBox(height: Space.md),
+          ContourPanel(
+            controller: controller,
+            onChordTap: (i) => _showChord(context, i),
+          ),
           const SizedBox(height: Space.lg),
           Row(
             children: [
@@ -123,23 +133,25 @@ class ResultsView extends StatelessWidget {
                     : Icons.play_arrow_rounded,
                 size: 56,
                 tone: PillTone.primary,
-                semanticLabel: controller.isPlaying ? 'Pause' : 'Play the take',
+                semanticLabel: controller.isPlaying
+                    ? 'Pause'
+                    : 'Play the take with these chords',
                 onTap: controller.playbackReady ? controller.togglePlay : null,
               ),
               const SizedBox(width: Space.md),
               Expanded(
                 child: PillButton(
-                  label: 'why it works',
-                  trailingIcon: Icons.arrow_forward_rounded,
-                  tone: PillTone.soft,
+                  label: controller.withBacking ? 'chords on' : 'chords off',
+                  icon: controller.withBacking
+                      ? Icons.piano_rounded
+                      : Icons.piano_off_rounded,
+                  tone: controller.withBacking ? PillTone.soft : PillTone.quiet,
                   height: 48,
                   expand: true,
                   textStyle: TextStyles.labelMd.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
-                  onTap: controller.explanation == null
-                      ? null
-                      : () => _showExplanation(context),
+                  onTap: controller.toggleBacking,
                 ),
               ),
             ],
@@ -149,98 +161,221 @@ class ResultsView extends StatelessWidget {
     );
   }
 
-  /// The line under the mascot: what's sounding while playing, otherwise
-  /// how sure the key is.
-  String _descriptor() {
-    final scene = controller.scene;
-    final playhead = scene.playhead;
-    if (scene.playingAll && playhead != null) {
-      final chord = controller.activeChord;
-      final sounding = [
-        for (final n in controller.confidentNotes)
-          if (playhead >= n.startTime && playhead < n.endTime) n.pitch,
-      ];
-      final parts = [
-        if (chord != null) scene.chords[chord].name,
-        ...sounding.take(3),
-      ];
-      return parts.isEmpty
-          ? 'playing · ${clockText(playhead)}'
-          : parts.join(' · ');
-    }
-    final key = scene.key;
-    if (key == null) return 'no clear key in this take';
-    if (key.confidence >= 0.75) return 'sounds like ${key.name}';
-    if (key.confidence >= 0.45) return 'probably ${key.name}';
-    return 'maybe ${key.name}, not sure';
-  }
-
-  void _showExplanation(BuildContext context) {
+  void _showChord(BuildContext context, int index) {
+    controller.playChord(index);
     showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
-      builder: (context) => _ExplanationSheet(controller: controller),
+      builder: (context) => _ChordSheet(controller: controller, index: index),
+    );
+  }
+
+  void _showGridSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
+      builder: (context) => _GridSheet(controller: controller),
     );
   }
 }
 
-/// The detected chords as audition chips, scrolling sideways when there
-/// are more than fit. The one sounding (or last tapped) is filled.
-class _ChordRow extends StatelessWidget {
-  const _ChordRow({required this.controller});
+/// Safe / Colourful / Bold, swiped between. The card in view is the one
+/// playing under the take and drawn above the contour.
+class _ProgressionCards extends StatefulWidget {
+  const _ProgressionCards({required this.controller, required this.onChordTap});
 
   final SessionController controller;
+  final void Function(int index) onChordTap;
+
+  @override
+  State<_ProgressionCards> createState() => _ProgressionCardsState();
+}
+
+class _ProgressionCardsState extends State<_ProgressionCards> {
+  late final PageController _pages = PageController(
+    viewportFraction: 0.9,
+    initialPage: widget.controller.selectedProgression,
+  );
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final chords = controller.scene.chords;
-    final active = controller.activeChord;
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: chords.length,
-        separatorBuilder: (_, _) => const SizedBox(width: Space.sm),
-        itemBuilder: (context, i) => _ChordChip(
-          chord: chords[i],
-          active: i == active,
-          onTap: () => controller.playChord(i),
+    final controller = widget.controller;
+    final progressions = controller.suggestions!.progressions;
+    return Column(
+      children: [
+        SizedBox(
+          height: 128,
+          child: PageView.builder(
+            controller: _pages,
+            itemCount: progressions.length,
+            onPageChanged: controller.selectProgression,
+            itemBuilder: (context, i) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Space.xs),
+              child: _ProgressionCard(
+                progression: progressions[i],
+                selected: i == controller.selectedProgression,
+                activeChord: i == controller.selectedProgression
+                    ? controller.activeChord
+                    : null,
+                onChordTap: (c) {
+                  if (i != controller.selectedProgression) {
+                    controller.selectProgression(i);
+                  }
+                  widget.onChordTap(c);
+                },
+              ),
+            ),
+          ),
         ),
+        const SizedBox(height: Space.sm),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < progressions.length; i++)
+              AnimatedContainer(
+                duration: Motion.quick,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: i == controller.selectedProgression ? 16 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: i == controller.selectedProgression
+                      ? Palette.primary
+                      : Palette.outlineVariant,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ProgressionCard extends StatelessWidget {
+  const _ProgressionCard({
+    required this.progression,
+    required this.selected,
+    required this.activeChord,
+    required this.onChordTap,
+  });
+
+  final Progression progression;
+  final bool selected;
+  final int? activeChord;
+  final void Function(int index) onChordTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: Motion.settle,
+      curve: Motion.curve,
+      padding: const EdgeInsets.fromLTRB(Space.md, 14, Space.md, 12),
+      decoration: BoxDecoration(
+        color: selected ? Palette.container : Palette.creamAlt,
+        borderRadius: BorderRadius.circular(Shape.panel),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(progression.title, style: TextStyles.labelLg),
+              if (progression.source == 'llm') ...[
+                const SizedBox(width: Space.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: const ShapeDecoration(
+                    color: Palette.primaryFixed,
+                    shape: StadiumBorder(),
+                  ),
+                  child: Text(
+                    'AI idea · checked',
+                    style: TextStyles.labelSm.copyWith(
+                      fontSize: 9,
+                      letterSpacing: 0.2,
+                      color: Palette.onPrimaryFixed,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Text(
+                  progression.character,
+                  style: TextStyles.bodySm,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          SizedBox(
+            height: 52,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: progression.chords.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (context, i) => _ChordPill(
+                chord: progression.chords[i],
+                active: i == activeChord,
+                onTap: () => onChordTap(i),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ChordChip extends StatelessWidget {
-  const _ChordChip({
+class _ChordPill extends StatelessWidget {
+  const _ChordPill({
     required this.chord,
     required this.active,
     required this.onTap,
   });
 
-  final Chord chord;
+  final ProgressionChord chord;
   final bool active;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final fg = active ? Palette.onPrimary : Palette.ink;
+    final bg = active
+        ? Palette.primary
+        : switch (chord.fit) {
+            ChordFit.fits => Palette.canvas,
+            ChordFit.colour => Palette.noteSoft.withValues(alpha: 0.32),
+            ChordFit.clash => Palette.error.withValues(alpha: 0.12),
+          };
     return Pressable(
       onTap: onTap,
-      semanticLabel: 'Play ${chord.name}, the ${chord.roman} chord',
+      semanticLabel:
+          'Bar ${chord.bar + 1}: ${chord.symbol}, ${chord.roman}. Tap for why',
       child: AnimatedContainer(
         duration: Motion.quick,
-        constraints: const BoxConstraints(minWidth: 72),
-        padding: const EdgeInsets.symmetric(horizontal: Space.md),
-        decoration: ShapeDecoration(
-          color: active ? Palette.primary : Palette.creamAlt,
-          shape: const StadiumBorder(),
+        constraints: const BoxConstraints(minWidth: 52),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(chord.name, style: TextStyles.labelLg.copyWith(color: fg)),
+            Text(chord.symbol, style: TextStyles.labelLg.copyWith(color: fg)),
             Text(
               chord.roman,
               style: TextStyles.labelSm.copyWith(
@@ -258,98 +393,223 @@ class _ChordChip extends StatelessWidget {
   }
 }
 
-/// The plain-language explanation, opened on demand: the summary (each
-/// chord it mentions is tappable, same as its chip) and a line per chord.
-class _ExplanationSheet extends StatelessWidget {
-  const _ExplanationSheet({required this.controller});
+/// One chord's "why": what it is, how it sits with the tune, and the
+/// reasons the engine (or the checked AI idea) gave.
+class _ChordSheet extends StatelessWidget {
+  const _ChordSheet({required this.controller, required this.index});
+
+  final SessionController controller;
+  final int index;
+
+  static const _functionWords = {
+    'tonic': 'home: where the music feels at rest',
+    'predominant': 'moving away from home',
+    'dominant': 'pulling back toward home',
+  };
+  static const _kindWords = {
+    'diatonic': 'in the key',
+    'seventh': 'in the key, with a seventh for colour',
+    'sus': 'suspended: open, unresolved',
+    'secondary': 'a secondary dominant: it leans into the next chord',
+    'borrowed': 'borrowed from the parallel key',
+    'chromatic': 'outside the key: a bold colour',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final chord = controller.scene.chords[index];
+    final (fitLabel, fitColor) = switch (chord.fit) {
+      ChordFit.fits => ('fits the tune', Palette.primary),
+      ChordFit.colour => ('adds colour', Palette.noteActive),
+      ChordFit.clash => ('rubs against the tune', Palette.error),
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(chord.symbol, style: TextStyles.headlineLg),
+              const SizedBox(width: Space.sm),
+              Text(
+                chord.roman,
+                style: TextStyles.headlineMd.copyWith(color: Palette.outline),
+              ),
+              const Spacer(),
+              Text(
+                'bar ${chord.bar + 1}',
+                style: TextStyles.labelMd.copyWith(color: Palette.outline),
+              ),
+            ],
+          ),
+          const SizedBox(height: Space.xs),
+          Text(
+            '${_functionWords[chord.function] ?? chord.function} · ${_kindWords[chord.kind] ?? chord.kind}',
+            style: TextStyles.bodySm,
+          ),
+          const SizedBox(height: Space.md),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: fitColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: Space.sm),
+              Text(
+                fitLabel,
+                style: TextStyles.labelLg.copyWith(color: fitColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: Space.sm),
+          for (final reason in chord.reasons)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Space.sm),
+              child: Text(reason, style: TextStyles.bodyLg),
+            ),
+          const SizedBox(height: Space.sm),
+          PillButton(
+            label: 'hear it again',
+            icon: Icons.play_arrow_rounded,
+            tone: PillTone.soft,
+            onTap: () => controller.playChord(index),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fixing the beat grid when the guess was off: where beat 1 is, double or
+/// half time, and how often the chords change.
+class _GridSheet extends StatelessWidget {
+  const _GridSheet({required this.controller});
 
   final SessionController controller;
 
   @override
   Widget build(BuildContext context) {
-    final explanation = controller.explanation!;
-    final chords = controller.scene.chords;
-    final linkStyle = TextStyles.bodyLg.copyWith(
-      color: Palette.primary,
-      fontWeight: FontWeight.w600,
-      decoration: TextDecoration.underline,
-      decorationColor: Palette.noteSoft,
-    );
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.55,
-      minChildSize: 0.3,
-      maxChildSize: 0.9,
-      builder: (context, scroll) => ListView(
-        controller: scroll,
-        padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xl),
-        children: [
-          Text('Why it sounds this way', style: TextStyles.headlineMd),
-          const SizedBox(height: Space.md),
-          Text.rich(
-            TextSpan(
-              style: TextStyles.bodyLg,
-              children: [
-                for (final segment in explanation.summary)
-                  segment.chordIndex == null
-                      ? TextSpan(text: segment.text)
-                      : TextSpan(
-                          text: segment.text,
-                          style: linkStyle,
-                          recognizer: TapGestureRecognizer()
-                            ..onTap = () =>
-                                controller.playChord(segment.chordIndex!),
-                        ),
-              ],
-            ),
-          ),
-          if (explanation.chords.isNotEmpty) ...[
-            const SizedBox(height: Space.lg),
-            const SectionLabel('chord by chord'),
-            const SizedBox(height: Space.sm),
-            for (var i = 0; i < explanation.chords.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Space.sm),
-                child: Pressable(
-                  pressedScale: 0.98,
-                  onTap: i < chords.length
-                      ? () => controller.playChord(i)
-                      : null,
-                  child: Container(
-                    padding: const EdgeInsets.all(Space.md),
-                    decoration: BoxDecoration(
-                      color: Palette.creamAlt,
-                      borderRadius: BorderRadius.circular(Shape.panel),
-                    ),
-                    child: Row(
-                      children: [
-                        if (i < chords.length) ...[
-                          SizedBox(
-                            width: 52,
-                            child: Text(
-                              chords[i].name,
-                              style: TextStyles.musicNote,
-                            ),
-                          ),
-                          const SizedBox(width: Space.sm),
-                        ],
-                        Expanded(
-                          child: Text(
-                            explanation.chords[i].text,
-                            style: TextStyles.bodyMd,
-                          ),
-                        ),
-                        const Icon(
-                          Icons.play_arrow_rounded,
-                          color: Palette.outline,
-                          size: 20,
-                        ),
-                      ],
-                    ),
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final grid = controller.grid;
+        if (grid == null) return const SizedBox.shrink();
+        final busy = controller.regridding;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Beat grid', style: TextStyles.headlineMd),
+              const SizedBox(height: Space.xs),
+              Text(
+                grid.guessed
+                    ? 'Guessed from your singing. If the chords change in odd places, nudge it.'
+                    : 'Set by the click you recorded with.',
+                style: TextStyles.bodySm,
+              ),
+              const SizedBox(height: Space.lg),
+              _GridRow(
+                label: 'Beat 1',
+                value: 'move the bar line',
+                children: [
+                  RoundAction(
+                    icon: Icons.chevron_left_rounded,
+                    size: 44,
+                    semanticLabel: 'Move beat 1 one beat earlier',
+                    onTap: busy ? null : () => controller.shiftDownbeat(-1),
+                  ),
+                  const SizedBox(width: Space.sm),
+                  RoundAction(
+                    icon: Icons.chevron_right_rounded,
+                    size: 44,
+                    semanticLabel: 'Move beat 1 one beat later',
+                    onTap: busy ? null : () => controller.shiftDownbeat(1),
+                  ),
+                ],
+              ),
+              _GridRow(
+                label: 'Tempo',
+                value: '${grid.bpm.round()} bpm',
+                children: [
+                  PillButton(
+                    label: '÷2',
+                    onTap: busy ? null : () => controller.scaleTempo(0.5),
+                  ),
+                  const SizedBox(width: Space.sm),
+                  PillButton(
+                    label: '×2',
+                    onTap: busy ? null : () => controller.scaleTempo(2),
+                  ),
+                ],
+              ),
+              _GridRow(
+                label: 'Chords',
+                value: controller.perBar == 1 ? 'one per bar' : 'two per bar',
+                children: [
+                  PillButton(
+                    label: controller.perBar == 1
+                        ? 'two per bar'
+                        : 'one per bar',
+                    onTap: busy ? null : controller.togglePerBar,
+                  ),
+                ],
+              ),
+              AnimatedOpacity(
+                opacity: busy ? 1 : 0,
+                duration: Motion.quick,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: Space.sm),
+                  child: Text(
+                    'Re-suggesting…',
+                    style: TextStyles.bodySm.copyWith(color: Palette.outline),
                   ),
                 ),
               ),
-          ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _GridRow extends StatelessWidget {
+  const _GridRow({
+    required this.label,
+    required this.value,
+    required this.children,
+  });
+
+  final String label;
+  final String value;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.md),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyles.labelLg),
+                Text(value, style: TextStyles.bodySm),
+              ],
+            ),
+          ),
+          ...children,
         ],
       ),
     );
@@ -378,7 +638,7 @@ class _NothingFound extends StatelessWidget {
           ),
           const SizedBox(height: Space.sm),
           Text(
-            'I couldn’t pick out a clear pitch. Try a steadier, sustained tone '
+            'I couldn’t pick out a clear tune. Try a steadier, sustained melody '
             'closer to the mic.',
             style: TextStyles.bodyMd,
             textAlign: TextAlign.center,

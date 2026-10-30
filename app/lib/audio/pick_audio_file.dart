@@ -9,7 +9,11 @@ import '../services/api_service.dart';
 /// An audio file the user picked: its bytes, a name for the upload, and a
 /// source `just_audio` can play directly.
 class PickedAudio {
-  PickedAudio({required this.bytes, required this.filename, required this.playbackSource});
+  PickedAudio({
+    required this.bytes,
+    required this.filename,
+    required this.playbackSource,
+  });
 
   final Uint8List bytes;
   final String filename;
@@ -32,9 +36,20 @@ Future<PickedAudio?> pickAudioFile() async {
 
   if (kIsWeb) {
     final bytes = picked.bytes!;
-    final dataUri = Uri.dataFromBytes(bytes, mimeType: mediaTypeForFilename(picked.name).toString());
-    return PickedAudio(bytes: bytes, filename: picked.name, playbackSource: dataUri.toString());
+    final dataUri = Uri.dataFromBytes(
+      bytes,
+      mimeType: mediaTypeForFilename(picked.name).toString(),
+    );
+    return PickedAudio(
+      bytes: bytes,
+      filename: picked.name,
+      playbackSource: dataUri.toString(),
+    );
   }
   final bytes = await File(picked.path!).readAsBytes();
-  return PickedAudio(bytes: bytes, filename: picked.name, playbackSource: picked.path!);
+  return PickedAudio(
+    bytes: bytes,
+    filename: picked.name,
+    playbackSource: picked.path!,
+  );
 }

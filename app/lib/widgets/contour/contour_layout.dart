@@ -35,6 +35,10 @@ class ContourLayout {
 
   /// Room on the left for the pitch labels.
   static const labelGutter = 30.0;
+
+  /// The band above the roll where the chosen progression's chords sit,
+  /// each pill spanning its bar.
+  static const ribbonHeight = 30.0;
   static const rightPad = 10.0;
   static const verticalPad = 10.0;
   static const pillHeight = 22.0;
@@ -53,7 +57,7 @@ class ContourLayout {
   double get left => labelGutter;
   double get right => size.width - rightPad;
   double get width => math.max(1, right - left);
-  double get top => verticalPad + pillHeight / 2;
+  double get top => ribbonHeight + verticalPad + pillHeight / 2;
   double get bottom => size.height - verticalPad - pillHeight / 2;
 
   double xForTime(double t) =>
@@ -82,6 +86,23 @@ class ContourLayout {
       math.min(x1, right),
       y + pillHeight / 2,
     );
+  }
+
+  /// A chord's pill in the ribbon, clipped to the roll's time span.
+  Rect chordRect(double start, double end) {
+    final x0 = xForTime(start) + 1.5;
+    final x1 = xForTime(end) - 1.5;
+    return Rect.fromLTRB(x0, 4, math.max(x1, x0 + 4), ribbonHeight - 4);
+  }
+
+  /// Index of the chord whose ribbon pill is under [p], or null.
+  int? hitChord(Offset p, List<(double, double)> spans) {
+    if (p.dy > ribbonHeight + 4) return null;
+    for (var i = 0; i < spans.length; i++) {
+      final (start, end) = spans[i];
+      if (chordRect(start, end).inflate(3).contains(p)) return i;
+    }
+    return null;
   }
 
   /// Up to five evenly spaced pitches to rule and label, spanning the

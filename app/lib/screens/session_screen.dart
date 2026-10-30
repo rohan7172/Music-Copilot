@@ -76,6 +76,12 @@ class _SessionScreenState extends State<SessionScreen>
             ),
             child: AnimatedSwitcher(
               duration: Motion.settle,
+              // Each view fills the canvas and lays itself out from the
+              // top; the default centring left short results floating.
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
+              ),
               switchInCurve: Motion.curve,
               switchOutCurve: Curves.easeIn,
               transitionBuilder: (child, animation) => FadeTransition(

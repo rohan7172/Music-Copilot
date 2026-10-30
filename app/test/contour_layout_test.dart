@@ -69,4 +69,13 @@ void main() {
     );
     expect(stacked.thread().single.length, 2);
   });
+
+  test('chords sit in the ribbon above the roll, tappable by span', () {
+    final spans = [(0.0, 2.0), (2.0, 4.0)];
+    final first = layout.chordRect(0, 2);
+    expect(first.bottom, lessThanOrEqualTo(ContourLayout.ribbonHeight));
+    expect(layout.pill(0).top, greaterThan(ContourLayout.ribbonHeight));
+    expect(layout.hitChord(layout.chordRect(2, 4).center, spans), 1);
+    expect(layout.hitChord(layout.pill(0).center, spans), isNull);
+  });
 }

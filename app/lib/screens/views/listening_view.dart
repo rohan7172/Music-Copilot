@@ -86,6 +86,29 @@ class ListeningView extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ),
+          if (controller.clickOn && !analyzing)
+            ValueListenableBuilder<double>(
+              valueListenable: controller.clock,
+              builder: (context, _, _) {
+                // The first bar of clicks is a count-in: sing from the next one.
+                final beat = (scene.liveDuration * controller.clickBpm / 60)
+                    .floor();
+                final text = beat < 4
+                    ? 'count-in ${beat + 1}'
+                    : 'bar ${beat ~/ 4}';
+                return Padding(
+                  padding: const EdgeInsets.only(top: Space.xs),
+                  child: Text(
+                    text,
+                    style: TextStyles.labelMd.copyWith(
+                      color: beat < 4 ? Palette.primary : Palette.outline,
+                      fontFeatures: TextStyles.tabular,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              },
+            ),
           const Spacer(flex: 2),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Space.md),
@@ -133,7 +156,7 @@ class ListeningView extends StatelessWidget {
                     height: 56,
                     child: Center(
                       child: Text(
-                        'Detecting pitches, then chords and key…',
+                        'Finding the tune, its beat and key, then chords for it…',
                         style: TextStyles.bodyMd,
                         textAlign: TextAlign.center,
                       ),

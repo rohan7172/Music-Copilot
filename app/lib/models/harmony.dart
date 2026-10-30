@@ -1,149 +1,267 @@
 import 'note.dart';
 
-/// The key the backend detected, e.g. "C major".
+double _d(Object? v) => (v as num).toDouble();
+
+/// The melody's key, e.g. "C major", with the runner-up (often its
+/// relative minor or major).
 class MusicKey {
-  MusicKey({required this.name, required this.tonic, required this.confidence});
+  MusicKey({
+    required this.name,
+    required this.tonic,
+    required this.mode,
+    required this.confidence,
+    this.runnerUp,
+  });
 
   factory MusicKey.fromJson(Map<String, dynamic> json) {
+    final runner = json['runner_up'];
     return MusicKey(
       name: json['name'] as String,
       tonic: json['tonic'] as String,
-      confidence: (json['confidence'] as num).toDouble(),
+      mode: json['mode'] as String,
+      confidence: _d(json['confidence']),
+      runnerUp: runner == null
+          ? null
+          : MusicKey.fromJson(runner as Map<String, dynamic>),
     );
   }
 
   final String name;
 
-  /// The tonic note, e.g. "G" or "F#" — a key's identity, independent of
-  /// mode. Used to pick a consistent color for the key (see KeyColor).
+  /// The home note, e.g. "G" or "F#".
   final String tonic;
-
+  final String mode;
   final double confidence;
+  final MusicKey? runnerUp;
+
+  Map<String, dynamic> toJson() => {'tonic': tonic, 'mode': mode};
 }
 
-/// A chord the backend found, spanning [startTime]..[endTime] seconds.
-class Chord {
-  Chord({
-    required this.name,
-    required this.roman,
-    required this.notes,
-    required this.pitchClasses,
-    required this.startTime,
-    required this.endTime,
+/// The bars and beats a melody is harmonised against: exact when the app
+/// played a click, otherwise estimated and marked [guessed].
+class BeatGrid {
+  BeatGrid({
+    required this.bpm,
+    required this.downbeat,
+    required this.meter,
+    required this.guessed,
+    required this.beats,
   });
 
-  factory Chord.fromJson(Map<String, dynamic> json) {
-    return Chord(
-      name: json['name'] as String,
-      roman: json['roman'] as String,
-      notes: (json['notes'] as List<dynamic>).cast<String>(),
-      pitchClasses: (json['pitch_classes'] as List<dynamic>).cast<int>(),
-      startTime: (json['start_time'] as num).toDouble(),
-      endTime: (json['end_time'] as num).toDouble(),
-    );
-  }
+  factory BeatGrid.fromJson(Map<String, dynamic> json) => BeatGrid(
+    bpm: _d(json['bpm']),
+    downbeat: _d(json['downbeat']),
+    meter: json['meter'] as int,
+    guessed: json['guessed'] as bool,
+    beats: [
+      for (final b in (json['beats'] as List<dynamic>? ?? const []))
+        Beat(
+          time: _d((b as Map<String, dynamic>)['time']),
+          downbeat: b['downbeat'] as bool,
+        ),
+    ],
+  );
 
-  /// Display name, e.g. "Am" or "G7".
-  final String name;
+  final double bpm;
 
-  /// Function in the key, e.g. "vi" or "V7".
-  final String roman;
+  /// Time (seconds) of a bar's first beat.
+  final double downbeat;
+  final int meter;
+  final bool guessed;
+  final List<Beat> beats;
 
-  /// Chord tones, spelled for the key, e.g. ["A", "C", "E"].
-  final List<String> notes;
+  double get beatLength => 60 / bpm;
 
-  /// The same tones as pitch classes (C = 0 ... B = 11).
-  final List<int> pitchClasses;
+  /// The same grid with a different downbeat, tempo or meter, for the
+  /// user's nudges. Beats are recomputed by the backend.
+  BeatGrid copyWith({double? bpm, double? downbeat, int? meter}) => BeatGrid(
+    bpm: bpm ?? this.bpm,
+    downbeat: downbeat ?? this.downbeat,
+    meter: meter ?? this.meter,
+    guessed: guessed,
+    beats: const [],
+  );
 
+  Map<String, dynamic> toJson() => {
+    'bpm': bpm,
+    'downbeat': downbeat,
+    'meter': meter,
+    'guessed': guessed,
+  };
+}
+
+class Beat {
+  const Beat({required this.time, required this.downbeat});
+  final double time;
+  final bool downbeat;
+}
+
+/// How a suggested chord sits with the melody in its bar.
+enum ChordFit { fits, colour, clash }
+
+/// One chord of a suggested progression, spanning one bar (or half).
+class ProgressionChord {
+  ProgressionChord({
+    required this.bar,
+    required this.startTime,
+    required this.endTime,
+    required this.symbol,
+    required this.roman,
+    required this.function,
+    required this.kind,
+    required this.fit,
+    required this.pitchClasses,
+    required this.reasons,
+  });
+
+  factory ProgressionChord.fromJson(Map<String, dynamic> json) =>
+      ProgressionChord(
+        bar: json['bar'] as int,
+        startTime: _d(json['start_time']),
+        endTime: _d(json['end_time']),
+        symbol: json['symbol'] as String,
+        roman: json['roman'] as String,
+        function: json['function'] as String,
+        kind: json['kind'] as String,
+        fit: ChordFit.values.byName(json['fit'] as String),
+        pitchClasses: (json['pitch_classes'] as List<dynamic>).cast<int>(),
+        reasons: (json['reasons'] as List<dynamic>).cast<String>(),
+      );
+
+  final int bar;
   final double startTime;
   final double endTime;
 
-  /// Whether [note] is one of this chord's tones and sounds during it.
-  bool contains(Note note) =>
-      pitchClasses.contains(note.midiPitch % 12) &&
-      note.startTime < endTime &&
-      note.endTime > startTime;
+  /// Display name, e.g. "Am7".
+  final String symbol;
+
+  /// Function in the key, e.g. "vi7" or "V7/vi".
+  final String roman;
+
+  /// "tonic", "predominant" or "dominant".
+  final String function;
+
+  /// "diatonic", "seventh", "sus", "secondary", "borrowed" or "chromatic".
+  final String kind;
+  final ChordFit fit;
+
+  /// Chord tones as pitch classes, root first. Sent back for /backing.
+  final List<int> pitchClasses;
+
+  /// Why it works, most telling first.
+  final List<String> reasons;
+
+  bool get isColour => kind != 'diatonic';
+
+  Map<String, dynamic> toBackingJson() => {
+    'start_time': startTime,
+    'end_time': endTime,
+    'pitch_classes': pitchClasses,
+  };
 }
 
-/// A plain-language explanation of one chord's role in the key, e.g.
-/// "G — the V chord, dominant: tension that pulls back toward the tonic".
-class ChordExplanation {
-  ChordExplanation({required this.text});
+/// One suggested progression: Safe, Colourful or Bold.
+class Progression {
+  Progression({
+    required this.kind,
+    required this.source,
+    required this.character,
+    required this.chords,
+  });
 
-  factory ChordExplanation.fromJson(Map<String, dynamic> json) {
-    return ChordExplanation(text: json['text'] as String);
-  }
+  factory Progression.fromJson(Map<String, dynamic> json) => Progression(
+    kind: json['kind'] as String,
+    source: json['source'] as String,
+    character: json['character'] as String,
+    chords: [
+      for (final c in json['chords'] as List<dynamic>)
+        ProgressionChord.fromJson(c as Map<String, dynamic>),
+    ],
+  );
 
-  final String text;
+  /// "safe", "colourful" or "bold".
+  final String kind;
+
+  /// "theory", or "llm" when an LLM proposed it and the engine validated it.
+  final String source;
+
+  /// The one-line mood, e.g. "warm and settled".
+  final String character;
+  final List<ProgressionChord> chords;
+
+  String get title => switch (kind) {
+    'safe' => 'Safe',
+    'colourful' => 'Colourful',
+    _ => 'Bold',
+  };
 }
 
-/// One piece of the overall summary sentence. A segment that names a
-/// specific chord carries [chordIndex] (that chord's position in
-/// [Analysis.chords]), making it a candidate for a tappable reference; plain
-/// prose segments carry null.
-class SummarySegment {
-  SummarySegment({required this.text, this.chordIndex});
+/// What /analyze and /harmonise return: the progressions plus everything
+/// needed to re-ask after a nudge.
+class Suggestions {
+  Suggestions({
+    required this.grid,
+    required this.key,
+    required this.progressions,
+    required this.insight,
+  });
 
-  factory SummarySegment.fromJson(Map<String, dynamic> json) {
-    return SummarySegment(
-      text: json['text'] as String,
-      chordIndex: json['chord_index'] as int?,
+  factory Suggestions.fromJson(Map<String, dynamic> json) {
+    final grid = json['grid'];
+    final key = json['key'];
+    return Suggestions(
+      grid: grid == null
+          ? null
+          : BeatGrid.fromJson(grid as Map<String, dynamic>),
+      key: key == null ? null : MusicKey.fromJson(key as Map<String, dynamic>),
+      progressions: [
+        for (final p in (json['progressions'] as List<dynamic>? ?? const []))
+          Progression.fromJson(p as Map<String, dynamic>),
+      ],
+      insight: json['insight'] as String?,
     );
   }
 
-  final String text;
-  final int? chordIndex;
+  final BeatGrid? grid;
+  final MusicKey? key;
+  final List<Progression> progressions;
+  final String? insight;
 }
 
-/// A plain-language summary of the key and progression, plus a matching
-/// explanation for each chord in [Analysis.chords].
-class Explanation {
-  Explanation({required this.summary, required this.chords});
-
-  factory Explanation.fromJson(Map<String, dynamic> json) {
-    return Explanation(
-      summary: [
-        for (final s in json['summary'] as List<dynamic>)
-          SummarySegment.fromJson(s as Map<String, dynamic>),
-      ],
-      chords: [
-        for (final c in json['chords'] as List<dynamic>)
-          ChordExplanation.fromJson(c as Map<String, dynamic>),
-      ],
-    );
-  }
-
-  final List<SummarySegment> summary;
-  final List<ChordExplanation> chords;
-}
-
-/// Everything /analyze returns for a recording.
+/// Everything /analyze returns for a take.
 class Analysis {
   Analysis({
     required this.notes,
-    required this.key,
-    required this.chords,
-    required this.explanation,
+    required this.melody,
+    required this.route,
+    required this.routeNote,
+    required this.suggestions,
   });
 
-  factory Analysis.fromJson(Map<String, dynamic> json) {
-    final key = json['key'];
-    return Analysis(
-      notes: [
-        for (final n in json['notes'] as List<dynamic>)
-          Note.fromJson(n as Map<String, dynamic>),
-      ],
-      key: key == null ? null : MusicKey.fromJson(key as Map<String, dynamic>),
-      chords: [
-        for (final c in (json['chords'] as List<dynamic>? ?? const []))
-          Chord.fromJson(c as Map<String, dynamic>),
-      ],
-      explanation: Explanation.fromJson(json['explanation'] as Map<String, dynamic>),
-    );
-  }
+  factory Analysis.fromJson(Map<String, dynamic> json) => Analysis(
+    notes: [
+      for (final n in json['notes'] as List<dynamic>)
+        Note.fromJson(n as Map<String, dynamic>),
+    ],
+    melody: [
+      for (final n in (json['melody'] as List<dynamic>? ?? const []))
+        Note.fromJson(n as Map<String, dynamic>),
+    ],
+    route: json['route'] as String? ?? 'melody',
+    routeNote: json['route_note'] as String?,
+    suggestions: Suggestions.fromJson(json),
+  );
 
+  /// Every note Basic Pitch heard.
   final List<Note> notes;
-  final MusicKey? key;
-  final List<Chord> chords;
-  final Explanation explanation;
+
+  /// The single tune line the harmoniser worked from.
+  final List<Note> melody;
+
+  /// "melody", "polyphonic" or "full_mix".
+  final String route;
+
+  /// A one-line note when the take isn't a plain melody, else null.
+  final String? routeNote;
+  final Suggestions suggestions;
 }

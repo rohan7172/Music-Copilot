@@ -26,6 +26,9 @@ const tapReaction = 0.6;
 /// How long the happy/excited reaction holds after results land.
 const revealReaction = 2.4;
 
+/// How long the happy beat lasts when a cadence resolves during playback.
+const cadenceReaction = 1.2;
+
 /// Key confidence at or above which results land as "excited" rather than
 /// just "happy"; below [unsureKey] the mascot stays curious afterwards.
 const confidentKey = 0.75;
@@ -44,6 +47,8 @@ MascotMood moodFor({
   bool playing = false,
   int noteCount = 0,
   double? keyConfidence,
+  bool boldSelected = false,
+  double? cadenceAt,
 }) {
   if (hasError) return MascotMood.surprised;
   switch (phase) {
@@ -53,6 +58,8 @@ MascotMood moodFor({
       return MascotMood.concentrating;
     case Phase.settled:
       if (noteCount == 0) return MascotMood.curious;
+      // A cadence resolving under the take earns a happy beat mid-song.
+      if (_recently(cadenceAt, now, cadenceReaction)) return MascotMood.happy;
       if (playing) return MascotMood.singing;
       if (_recently(lastTapAt, now, tapReaction)) return MascotMood.tapped;
       if (settleStart != null && now - settleStart < revealReaction) {
@@ -60,6 +67,8 @@ MascotMood moodFor({
             ? MascotMood.excited
             : MascotMood.happy;
       }
+      // The Bold card is the adventurous one: the mascot tilts its head at it.
+      if (boldSelected) return MascotMood.curious;
       if (keyConfidence == null || keyConfidence < unsureKey) {
         return MascotMood.curious;
       }

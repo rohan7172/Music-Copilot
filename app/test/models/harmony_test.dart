@@ -1,86 +1,88 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:music_copilot_app/models/harmony.dart';
 
+Map<String, dynamic> _chord(int bar, String symbol, {String fit = 'fits'}) => {
+  'bar': bar,
+  'start_time': bar * 2.4,
+  'end_time': (bar + 1) * 2.4,
+  'symbol': symbol,
+  'root': symbol[0],
+  'quality': 'maj',
+  'pitch_classes': [0, 4, 7],
+  'roman': 'I',
+  'function': 'tonic',
+  'kind': 'diatonic',
+  'fit': fit,
+  'reasons': ['Your C and G are in C, so it feels settled.'],
+};
+
 void main() {
-  group('MusicKey.fromJson', () {
-    test('parses the tonic alongside name and confidence', () {
-      final key = MusicKey.fromJson({'tonic': 'G', 'mode': 'major', 'name': 'G major', 'confidence': 0.9});
-
-      expect(key.tonic, 'G');
-      expect(key.name, 'G major');
+  test('MusicKey parses the runner-up', () {
+    final key = MusicKey.fromJson({
+      'tonic': 'C',
+      'mode': 'major',
+      'name': 'C major',
+      'confidence': 0.9,
+      'runner_up': {'tonic': 'A', 'mode': 'minor', 'name': 'A minor', 'confidence': 0.7},
     });
+    expect(key.name, 'C major');
+    expect(key.runnerUp!.name, 'A minor');
+    expect(key.toJson(), {'tonic': 'C', 'mode': 'major'});
   });
 
-  group('SummarySegment.fromJson', () {
-    test('parses plain text with no chord link', () {
-      final segment = SummarySegment.fromJson({'text': 'This is in C major, '});
-
-      expect(segment.text, 'This is in C major, ');
-      expect(segment.chordIndex, isNull);
+  test('BeatGrid parses beats and nudges keep the rest', () {
+    final grid = BeatGrid.fromJson({
+      'bpm': 100,
+      'downbeat': 0.3,
+      'meter': 4,
+      'guessed': true,
+      'beats': [
+        {'time': 0.3, 'downbeat': true},
+        {'time': 0.9, 'downbeat': false},
+      ],
     });
-
-    test('parses a chord-linked segment', () {
-      final segment = SummarySegment.fromJson({'text': 'V', 'chord_index': 1});
-
-      expect(segment.text, 'V');
-      expect(segment.chordIndex, 1);
-    });
+    expect(grid.beatLength, closeTo(0.6, 1e-9));
+    expect(grid.beats.first.downbeat, isTrue);
+    final nudged = grid.copyWith(downbeat: 0.9);
+    expect(nudged.bpm, 100);
+    expect(nudged.toJson()['downbeat'], 0.9);
   });
 
-  group('Explanation.fromJson', () {
-    test('parses a summary made of segments and per-chord explanations', () {
-      final explanation = Explanation.fromJson({
-        'summary': [
-          {'text': 'This is in C major, moving through a '},
-          {'text': 'ii', 'chord_index': 0},
-          {'text': '–'},
-          {'text': 'V', 'chord_index': 1},
-          {'text': ' progression.'},
-        ],
-        'chords': [
-          {'text': 'C — the I chord, tonic: home, where the music feels at rest'},
-          {'text': 'G — the V chord, dominant: tension that pulls back toward the tonic'},
-        ],
-      });
-
-      expect(explanation.summary, hasLength(5));
-      expect(explanation.summary[1].text, 'ii');
-      expect(explanation.summary[1].chordIndex, 0);
-      expect(explanation.summary[2].chordIndex, isNull);
-      expect(explanation.chords, hasLength(2));
-      expect(explanation.chords[0].text, 'C — the I chord, tonic: home, where the music feels at rest');
-    });
-
-    test('parses an empty chord list when nothing was recognised', () {
-      final explanation = Explanation.fromJson({
-        'summary': [
-          {'text': 'Not enough was played to make out a clear key or chord progression.'},
-        ],
-        'chords': [],
-      });
-
-      expect(explanation.chords, isEmpty);
-    });
-  });
-
-  group('Analysis.fromJson', () {
-    test('includes the explanation alongside notes, key, and chords', () {
-      final analysis = Analysis.fromJson({
-        'notes': [],
-        'key': null,
-        'chords': [],
-        'explanation': {
-          'summary': [
-            {'text': 'Not enough was played to make out a clear key or chord progression.'},
-          ],
-          'chords': [],
+  test('Analysis parses route, melody and progressions', () {
+    final analysis = Analysis.fromJson({
+      'notes': [],
+      'melody': [
+        {'pitch': 'C4', 'midi_pitch': 60, 'start_time': 0.0, 'end_time': 0.5, 'confidence': 0.8},
+      ],
+      'route': 'polyphonic',
+      'route_note': 'Suggestions follow its top line for now.',
+      'grid': {'bpm': 100, 'downbeat': 0.0, 'meter': 4, 'guessed': false, 'beats': []},
+      'key': {'tonic': 'C', 'mode': 'major', 'name': 'C major', 'confidence': 0.9},
+      'progressions': [
+        {
+          'kind': 'bold',
+          'source': 'llm',
+          'character': 'dreamy with a dark twist',
+          'score': 12.5,
+          'chords': [_chord(0, 'C'), _chord(1, 'Ab', fit: 'colour')],
         },
-      });
-
-      expect(
-        analysis.explanation.summary.single.text,
-        'Not enough was played to make out a clear key or chord progression.',
-      );
+      ],
+      'insight': 'Your tune ends on C.',
     });
+    expect(analysis.route, 'polyphonic');
+    expect(analysis.melody.single.midiPitch, 60);
+    final bold = analysis.suggestions.progressions.single;
+    expect(bold.title, 'Bold');
+    expect(bold.source, 'llm');
+    expect(bold.chords[1].fit, ChordFit.colour);
+    expect(bold.chords[1].toBackingJson()['pitch_classes'], [0, 4, 7]);
+    expect(analysis.suggestions.grid!.guessed, isFalse);
+    expect(analysis.suggestions.insight, 'Your tune ends on C.');
+  });
+
+  test('An empty take parses to no suggestions', () {
+    final analysis = Analysis.fromJson({'notes': [], 'grid': null, 'key': null, 'progressions': []});
+    expect(analysis.suggestions.progressions, isEmpty);
+    expect(analysis.suggestions.key, isNull);
   });
 }

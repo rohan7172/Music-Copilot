@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../models/harmony.dart';
 import '../../models/note.dart';
 import '../../note_range.dart';
 import '../../session/scene.dart';
@@ -15,9 +16,13 @@ import 'contour_layout.dart';
 /// and a scrubber. Tap a pill to hear that note; tap or drag anywhere else
 /// on the roll or the scrubber to play from there.
 class ContourPanel extends StatelessWidget {
-  const ContourPanel({super.key, required this.controller});
+  const ContourPanel({super.key, required this.controller, this.onChordTap});
 
   final SessionController controller;
+
+  /// A chord pill in the ribbon was tapped (index into the chosen
+  /// progression's chords).
+  final void Function(int index)? onChordTap;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +52,7 @@ class ContourPanel extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 176,
+            height: 200,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final layout = ContourLayout(
@@ -62,6 +67,13 @@ class ContourPanel extends StatelessWidget {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTapUp: (d) {
+                      final chord = layout.hitChord(d.localPosition, [
+                        for (final c in scene.chords) (c.startTime, c.endTime),
+                      ]);
+                      if (chord != null) {
+                        onChordTap?.call(chord);
+                        return;
+                      }
                       final hit = layout.hitNote(d.localPosition);
                       if (hit != null) {
                         controller.playNote(visible[hit]);
@@ -80,6 +92,8 @@ class ContourPanel extends StatelessWidget {
                             scene: scene,
                             visible: visible,
                             clock: controller.clock,
+                            grid: controller.grid,
+                            activeChord: () => controller.activeChord,
                           ),
                         ),
                       ),
@@ -150,7 +164,12 @@ class _ContourPainter extends CustomPainter {
     required this.scene,
     required this.visible,
     required this.clock,
+    required this.grid,
+    required this.activeChord,
   }) : super(repaint: clock);
+
+  final BeatGrid? grid;
+  final int? Function() activeChord;
 
   final ContourLayout layout;
   final Scene scene;
@@ -163,6 +182,8 @@ class _ContourPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final now = clock.value;
     _paintGrid(canvas, size);
+    _paintBars(canvas, size);
+    _paintRibbon(canvas, now);
 
     // Notes land one after another when results first appear.
     final settle = scene.settleStart ?? -10;
@@ -211,6 +232,73 @@ class _ContourPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       label.paint(canvas, Offset(6, y - label.height / 2));
+    }
+  }
+
+  /// A faint line at every bar, so each chord's span reads against the tune.
+  void _paintBars(Canvas canvas, Size size) {
+    final g = grid;
+    if (g == null) return;
+    final paint = Paint()
+      ..color = Palette.outlineVariant.withValues(alpha: 0.6)
+      ..strokeWidth = 1;
+    for (final beat in g.beats) {
+      if (!beat.downbeat) continue;
+      final x = layout.xForTime(beat.time);
+      if (x <= layout.left + 0.5 || x >= layout.right - 0.5) continue;
+      final px = x.roundToDouble() + 0.5;
+      canvas.drawLine(
+        Offset(px, ContourLayout.ribbonHeight),
+        Offset(px, size.height),
+        paint,
+      );
+    }
+  }
+
+  /// The chosen progression above the roll, a pill per bar: tinted by how
+  /// it sits with the melody, filled while it sounds or when tapped.
+  void _paintRibbon(Canvas canvas, double now) {
+    final chords = scene.chords;
+    if (chords.isEmpty) return;
+    final settle = scene.settleStart ?? -10;
+    final active = activeChord();
+    for (var i = 0; i < chords.length; i++) {
+      final c = chords[i];
+      final a = Curves.easeOutCubic.transform(
+        ((now - settle - 0.5 - i * 0.05) / 0.4).clamp(0.0, 1.0),
+      );
+      if (a <= 0) continue;
+      final r = layout.chordRect(c.startTime, c.endTime);
+      final on = i == active;
+      final fill = on
+          ? Palette.primary
+          : switch (c.fit) {
+              ChordFit.fits => Palette.containerHighest,
+              ChordFit.colour => Palette.noteSoft.withValues(alpha: 0.4),
+              ChordFit.clash => Palette.error.withValues(alpha: 0.14),
+            };
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(r, Radius.circular(r.height / 2)),
+        Paint()..color = fill.withValues(alpha: fill.a * a),
+      );
+      final label = TextPainter(
+        text: TextSpan(
+          text: c.symbol,
+          style: TextStyles.labelSm.copyWith(
+            fontSize: 9.5,
+            letterSpacing: -0.2,
+            color: (on ? Palette.onPrimary : Palette.ink).withValues(alpha: a),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      if (label.width + 3 <= r.width) {
+        label.paint(
+          canvas,
+          Offset(r.center.dx - label.width / 2, r.center.dy - label.height / 2),
+        );
+      }
     }
   }
 
@@ -311,8 +399,13 @@ class _ContourPainter extends CustomPainter {
     final paint = Paint()
       ..color = Palette.primary
       ..strokeWidth = 2;
-    canvas.drawLine(Offset(x, 4), Offset(x, size.height), paint);
-    canvas.drawCircle(Offset(x, 5), 4.5, Paint()..color = Palette.primary);
+    const top = ContourLayout.ribbonHeight;
+    canvas.drawLine(Offset(x, top), Offset(x, size.height), paint);
+    canvas.drawCircle(
+      Offset(x, top + 1),
+      4.5,
+      Paint()..color = Palette.primary,
+    );
 
     final tag = TextPainter(
       text: TextSpan(
