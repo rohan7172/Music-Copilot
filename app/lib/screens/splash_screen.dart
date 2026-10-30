@@ -1,38 +1,27 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../theme.dart';
-import '../widgets/score_canvas.dart' show strokeGaussianWave;
+import '../widgets/app_frame.dart';
+import '../widgets/mascot/mascot.dart';
 import 'session_screen.dart';
 
 // impeccable:direction-contract
-// THESIS: the hero moment — one flowing line and a short musical pulse,
-// nothing else, standing in for every generic app-loading screen.
-// STORY: the line grows in from the left while three ripples rise along it
-// in time with a three-note chime, then the line shrinks back out the same
-// way it came — the screen is blank again before the cut to the home
-// screen, so the hand-off is never a visible jump.
-// FORM: brief-pinned — "one simple line representing music... a pulse that
-// plays a certain note, two notes or three notes," now a distinct beat
-// before the mascot, not merged into the home screen.
+// THESIS: the companion waking up to music is the app's first moment.
+// STORY: the mascot fades in asleep; the three-note chime plays and it
+// sings along (eyes shut, notes drifting off); on the last note it opens
+// its eyes, and the session screen fades in around it.
+// FORM: brief-pinned — the mascot sheet's Sleepy → Singing → Idle states,
+// on the Stitch frame.
 
-/// The three notes in `assets/sounds/chime.wav` (see
-/// scripts/generate_splash_chime.py) — kept in sync here so the line's
-/// ripples land exactly on the notes the user hears. The original, best
-/// version of this animation; only the grow-in/shrink-out around it is new.
-const _noteOnsets = [0.0, 0.27, 0.54];
-const _bumpDuration = 0.5;
-
-const _growDuration = 0.5;
-// Long enough that all three ripples (the last starts at 0.54s and takes
-// 0.5s to rise and fall) finish while the line is still fully grown, not
-// swallowed mid-shrink.
-const _holdDuration = 0.6;
-const _shrinkDuration = 0.5;
-const _totalDuration = _growDuration + _holdDuration + _shrinkDuration;
+/// Seconds into the splash for each beat. The chime's three notes land at
+/// 0, 0.27 and 0.54 s (see scripts/generate_splash_chime.py), so the
+/// mascot sings through them and wakes just after the last one rings out.
+const _singFrom = 0.18;
+const _wakeAt = 0.95;
+const _total = 1.9;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -41,21 +30,25 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: Duration(milliseconds: (_totalDuration * 1000).round()),
+    duration: Duration(milliseconds: (_total * 1000).round()),
   );
+  final ValueNotifier<double> _clock = ValueNotifier(0);
   final AudioPlayer _player = AudioPlayer();
   bool _advanced = false;
 
   @override
   void initState() {
     super.initState();
-    _controller.forward();
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) _advance();
-    });
+    _controller
+      ..addListener(() => _clock.value = _controller.value * _total)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) _advance();
+      })
+      ..forward();
     unawaited(_playChime());
   }
 
@@ -74,9 +67,11 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     _advanced = true;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 150),
-        pageBuilder: (context, animation, _) =>
-            FadeTransition(opacity: animation, child: const SessionScreen()),
+        transitionDuration: const Duration(milliseconds: 380),
+        pageBuilder: (context, animation, _) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: const SessionScreen(),
+        ),
       ),
     );
   }
@@ -84,6 +79,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   void dispose() {
     _controller.dispose();
+    _clock.dispose();
     _player.dispose();
     super.dispose();
   }
@@ -93,78 +89,35 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _advance,
-      child: Scaffold(
-        backgroundColor: Palette.paper,
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                return CustomPaint(
-                  size: Size.infinite,
-                  painter: _SplashLinePainter(_controller.value * _totalDuration),
-                );
-              },
-            ),
+      child: AppFrame(
+        child: Center(
+          child: ValueListenableBuilder<double>(
+            valueListenable: _clock,
+            builder: (context, t, _) {
+              final mood = t < _singFrom
+                  ? MascotMood.sleepy
+                  : t < _wakeAt
+                  ? MascotMood.singing
+                  : MascotMood.idle;
+              final appear = Curves.easeOutCubic.transform((t / 0.35).clamp(0.0, 1.0));
+              return Opacity(
+                opacity: appear,
+                child: Transform.scale(
+                  scale: 0.92 + 0.08 * appear,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Mascot(mood: mood, clock: _clock, width: 220),
+                      const SizedBox(height: Space.lg),
+                      Text('Music Copilot', style: TextStyles.headlineMd),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
     );
   }
-}
-
-class _SplashLinePainter extends CustomPainter {
-  _SplashLinePainter(this.elapsed);
-
-  final double elapsed;
-
-  /// 0..1: how much of the line is currently revealed — grows from 0 to 1,
-  /// holds, then shrinks back to 0 the same way it came (the literal
-  /// reverse of the grow-in), so the screen is blank again right before the
-  /// cut to the home screen.
-  double get _reveal {
-    if (elapsed < _growDuration) {
-      return Curves.easeOutCubic.transform(elapsed / _growDuration);
-    }
-    if (elapsed < _growDuration + _holdDuration) return 1.0;
-    final shrinkT = (elapsed - _growDuration - _holdDuration) / _shrinkDuration;
-    return 1.0 - Curves.easeInCubic.transform(shrinkT.clamp(0.0, 1.0));
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final reveal = _reveal;
-    if (reveal <= 0) return;
-
-    // Which of the 3 chime-note bumps are currently rising/falling, and
-    // by how much — the rendering itself (Gaussian falloff per bump,
-    // summed and smoothed into one line) now lives in
-    // `widgets/score_canvas.dart`'s `strokeGaussianWave`, shared with the
-    // recording-time line so both read as the same visual idea.
-    final bumps = <({double anchorX, double rise})>[];
-    for (var j = 0; j < _noteOnsets.length; j++) {
-      final q = ((elapsed - _noteOnsets[j]) / _bumpDuration).clamp(0.0, 1.0);
-      if (q <= 0 || q >= 1) continue;
-      bumps.add((
-        anchorX: size.width * (j + 1) / (_noteOnsets.length + 1),
-        rise: math.sin(math.pi * q),
-      ));
-    }
-
-    strokeGaussianWave(
-      canvas,
-      x0: 0,
-      x1: size.width,
-      baselineY: size.height / 2,
-      amplitude: size.height * 0.07,
-      sigma: size.width * 0.1,
-      bumps: bumps,
-      color: Palette.accent.withValues(alpha: 0.85),
-      reveal: reveal,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_SplashLinePainter oldDelegate) => oldDelegate.elapsed != elapsed;
 }

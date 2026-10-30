@@ -15,14 +15,7 @@ class MusicCopilotApp extends StatelessWidget {
     return MaterialApp(
       title: 'Music Copilot',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Palette.accent,
-          surface: Palette.paper,
-        ),
-        scaffoldBackgroundColor: Palette.paper,
-        useMaterial3: true,
-      ),
+      theme: buildTheme(),
       home: const SplashScreen(),
     );
   }

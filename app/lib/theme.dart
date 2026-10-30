@@ -3,61 +3,236 @@ import 'package:flutter/material.dart';
 // impeccable:direction-contract
 // THESIS: a companion-led, organic app — nothing on screen that doesn't
 // trace back to a real sound event.
-// OWN-WORLD: ivory ground, one lavender accent (Restrained strategy), soft
-// rounded "pill" shapes with no hard outlines, flowing lines over bars/grids.
-// FORM: brief-pinned — see Inpiration/FULL APP LOOK REFERENCE.png and
-// docs/superpowers/specs/2026-10-29-visual-identity-overhaul.md.
+// OWN-WORLD: a lavender bezel around one rounded near-white canvas; quiet
+// lavender-tinted chips and panels; one deep violet for the thing you can
+// press right now; fluid lavender walls that move with the sound.
+// FORM: brief-pinned — Google Stitch project "Design System Foundation"
+// (17933563689007442256), light screens, and the mascot sheet at
+// Inpiration/Mascot States and Emotions Sheet.png.
 
-/// The app's palette: warm ivory paper, graphite ink, one lavender accent.
-/// Replaces the earlier "blank slate" navy accent as part of the visual
-/// identity overhaul — everything else (paper, ink) was already close to
-/// the new brief, so only the accent actually changes hue.
+/// Color tokens, taken directly from the Stitch screens' Tailwind config
+/// (light theme) so the app and the designs stay one system.
 class Palette {
-  static const paper = Color(0xFFFAF8F4);
-  static const ink = Color(0xFF2B2B2B);
-  static const accent = Color(0xFF8B7FC7);
-  static const error = Color(0xFFB5523B);
+  /// The lavender bezel the whole app sits inside.
+  static const frame = Color(0xFF726ABC);
+
+  /// The rounded near-white canvas everything is drawn on.
+  static const canvas = Color(0xFFFBFBFE);
+
+  /// Chips, quiet buttons and panels: a hair darker than the canvas.
+  static const creamAlt = Color(0xFFF3F2F8);
+  static const container = Color(0xFFF0EBFF);
+  static const containerHigh = Color(0xFFEAE5FF);
+
+  /// The one "press me" color: filled buttons, playhead, active chip.
+  static const primary = Color(0xFF5951A2);
+  static const onPrimary = Color(0xFFFFFFFF);
+
+  /// The secondary call-to-action pill and its text.
+  static const primaryFixed = Color(0xFFE4DFFF);
+  static const onPrimaryFixed = Color(0xFF17065E);
+
+  /// A note that is sounding / selected, and the softer harmony tint.
+  static const noteActive = Color(0xFF7065C7);
+  static const noteSoft = Color(0xFF9D93E8);
+
+  /// The edge fluid's two hues.
+  static const fluid = Color(0xFF8E87D8);
+  static const fluidDeep = Color(0xFF6D64BD);
+
+  /// Hairlines: pitch-grid rules, the scrub track.
+  static const tint = Color(0xFFECEBFA);
+
+  /// Text: labels and the mascot's ink, body text, secondary text.
+  static const ink = Color(0xFF3F3B63);
+  static const onSurface = Color(0xFF1B192F);
+  static const onSurfaceVariant = Color(0xFF474551);
+  static const outline = Color(0xFF787582);
+  static const outlineVariant = Color(0xFFC8C4D2);
+
+  static const error = Color(0xFFBA1A1A);
 }
 
-/// Shared corner radius for the pill/organic shape language (buttons, chips,
-/// cards) — one number so the whole app reads as one consistent shape
-/// vocabulary rather than per-widget guesses.
-class Shape {
-  /// Fully round ("stadium") — for pill buttons and chips.
-  static const pill = 999.0;
+/// The mascot's own colors, sampled from the reference sheet so it reads as
+/// exactly that character rather than a re-tint of the UI palette.
+class MascotColors {
+  static const body = Color(0xFF9688D4);
+  static const grille = Color(0xFF7164B5);
+  static const eye = Color(0xFF3F3578);
+  static const accent = Color(0xFF9D90DA);
+}
 
-  /// Soft rounding for larger rectangular surfaces that aren't pills.
-  static const soft = 20.0;
+/// The one typeface the Stitch designs use, bundled under assets/fonts.
+const _family = 'PlusJakartaSans';
+
+/// Type scale from the Stitch config. Letter spacing there is in em; Flutter
+/// wants logical pixels, so each one is multiplied out by its font size.
+class TextStyles {
+  static const headlineXl = TextStyle(
+    fontFamily: _family,
+    fontSize: 40,
+    height: 48 / 40,
+    letterSpacing: -0.8,
+    fontWeight: FontWeight.w600,
+    color: Palette.onSurface,
+  );
+  static const headlineXlMobile = TextStyle(
+    fontFamily: _family,
+    fontSize: 30,
+    height: 38 / 30,
+    letterSpacing: -0.45,
+    fontWeight: FontWeight.w600,
+    color: Palette.onSurface,
+  );
+  static const headlineLg = TextStyle(
+    fontFamily: _family,
+    fontSize: 28,
+    height: 36 / 28,
+    letterSpacing: -0.28,
+    fontWeight: FontWeight.w600,
+    color: Palette.onSurface,
+  );
+  static const headlineMd = TextStyle(
+    fontFamily: _family,
+    fontSize: 22,
+    height: 28 / 22,
+    fontWeight: FontWeight.w500,
+    color: Palette.onSurface,
+  );
+  static const bodyLg = TextStyle(
+    fontFamily: _family,
+    fontSize: 17,
+    height: 24 / 17,
+    fontWeight: FontWeight.w400,
+    color: Palette.onSurface,
+  );
+  static const bodyMd = TextStyle(
+    fontFamily: _family,
+    fontSize: 15,
+    height: 22 / 15,
+    fontWeight: FontWeight.w400,
+    color: Palette.onSurfaceVariant,
+  );
+  static const bodySm = TextStyle(
+    fontFamily: _family,
+    fontSize: 13,
+    height: 18 / 13,
+    fontWeight: FontWeight.w400,
+    color: Palette.onSurfaceVariant,
+  );
+  static const labelLg = TextStyle(
+    fontFamily: _family,
+    fontSize: 14,
+    height: 20 / 14,
+    letterSpacing: 0.14,
+    fontWeight: FontWeight.w600,
+    color: Palette.ink,
+  );
+  static const labelMd = TextStyle(
+    fontFamily: _family,
+    fontSize: 12,
+    height: 16 / 12,
+    letterSpacing: 0.24,
+    fontWeight: FontWeight.w500,
+    color: Palette.ink,
+  );
+
+  /// Small uppercase section labels ("VOCAL CONTOUR") — callers uppercase
+  /// the string; the generous tracking is what makes it read as a label.
+  static const labelSm = TextStyle(
+    fontFamily: _family,
+    fontSize: 11,
+    height: 14 / 11,
+    letterSpacing: 0.66,
+    fontWeight: FontWeight.w600,
+    color: Palette.onSurfaceVariant,
+  );
+  static const musicNote = TextStyle(
+    fontFamily: _family,
+    fontSize: 20,
+    height: 24 / 20,
+    letterSpacing: -0.2,
+    fontWeight: FontWeight.w700,
+    color: Palette.ink,
+  );
+
+  /// Times and counts: the same face with tabular figures so a running
+  /// clock doesn't jitter sideways as its digits change.
+  static const tabular = [FontFeature.tabularFigures()];
+}
+
+/// Corner radii: panels, larger surfaces, the canvas itself, and pills.
+class Shape {
+  static const panel = 16.0;
+  static const large = 24.0;
+  static const canvas = 40.0;
+  static const pill = 999.0;
+}
+
+/// Spacing steps from the Stitch config.
+class Space {
+  static const xs = 4.0;
+  static const sm = 8.0;
+  static const md = 16.0;
+  static const lg = 24.0;
+  static const xl = 40.0;
+
+  /// Horizontal page margin inside the canvas.
+  static const margin = 20.0;
 }
 
 /// Primarily a mobile app, but built to also run as a desktop app — on a
-/// wide window, content stays centered at a phone-like width instead of
-/// stretching edge-to-edge (where the waveform and mascot would read as
-/// thin and lost rather than organic).
+/// wide window the framed canvas stays centered at a phone-like width
+/// instead of stretching edge-to-edge.
 class Layout {
   static const maxContentWidth = 480.0;
+
+  /// How much lavender bezel shows around the canvas.
+  static const bezel = 8.0;
 }
 
-/// Fixed colors for the musical lines — three named hues, not derived from
-/// the detected harmony. (A version of this app tried coloring the lines by
-/// harmonic tension; reverted in favor of matching the reference board's
-/// fixed purple/green/orange directly, which read simpler and clearer.)
-class LineColors {
-  static const purple = Palette.accent;
-  static const green = Color(0xFF7FB88A);
-  static const orange = Color(0xFFDB9B6C);
-  static const all = [purple, green, orange];
+/// Motion timings shared across views, so the app moves with one rhythm.
+class Motion {
+  static const quick = Duration(milliseconds: 180);
+  static const settle = Duration(milliseconds: 420);
+  static const curve = Curves.easeOutCubic;
 }
 
-/// The edge fluid field's two-hue gradient (see `widgets/fluid_field.dart`)
-/// — a lighter lavender and a deeper purple, both already in the app's
-/// existing accent family rather than a new hue.
-class FluidColors {
-  static const lavender = Color(0xFFB9ADEA);
-  static const deepPurple = Color(0xFF5B4EA6);
-
-  /// A very light lavender-white — concentrated near each bump's crest
-  /// (see `widgets/fluid_field.dart`'s vertex-mesh highlight layer) for a
-  /// sense of light catching the liquid's surface, rather than a flat fill.
-  static const highlight = Color(0xFFEFE9FB);
+ThemeData buildTheme() {
+  final scheme = ColorScheme.fromSeed(
+    seedColor: Palette.primary,
+    primary: Palette.primary,
+    onPrimary: Palette.onPrimary,
+    surface: Palette.canvas,
+    onSurface: Palette.onSurface,
+    error: Palette.error,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    fontFamily: _family,
+    scaffoldBackgroundColor: Palette.frame,
+    splashFactory: InkSparkle.splashFactory,
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: Palette.primary,
+      selectionColor: Palette.noteSoft.withValues(alpha: 0.35),
+      selectionHandleColor: Palette.primary,
+    ),
+    focusColor: Palette.noteSoft.withValues(alpha: 0.3),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Palette.canvas,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+      dragHandleColor: Palette.outlineVariant,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Shape.large)),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: Palette.onSurface,
+      contentTextStyle: TextStyles.bodySm.copyWith(color: Palette.canvas),
+      behavior: SnackBarBehavior.floating,
+      shape: const StadiumBorder(),
+    ),
+  );
 }

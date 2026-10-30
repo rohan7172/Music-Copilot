@@ -48,8 +48,6 @@ dependencies:
   audio_session: ^0.2.4
   # Picking an existing audio file to analyze
   file_picker: ^10.1.2
-  # Small local key-value flags (e.g. "has the first-run hint been shown")
-  shared_preferences: ^2.3.3
 
 dev_dependencies:
   flutter_test:
@@ -75,6 +73,20 @@ flutter:
 
   assets:
     - assets/sounds/chime.wav
+
+  # Plus Jakarta Sans, the one face the Stitch designs use — bundled so
+  # text renders the same everywhere, offline included.
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

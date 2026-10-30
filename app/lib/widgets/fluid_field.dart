@@ -7,7 +7,7 @@ import 'package:flutter/rendering.dart';
 
 import '../models/note.dart';
 import '../theme.dart';
-import 'score_canvas.dart' show Phase, Scene, introDuration, liveVolume;
+import '../session/scene.dart';
 
 /// Roughly how much of the screen's height, measured from the bottom, the
 /// fluid tapers down to nothing within — not a hard cutoff (see
@@ -374,9 +374,7 @@ void _paintNoteBubble(Canvas canvas, Offset center, String label, double envelop
   final painter = TextPainter(
     text: TextSpan(
       text: label,
-      style: TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
+      style: TextStyles.labelSm.copyWith(
         letterSpacing: 0.2,
         color: Palette.ink.withValues(alpha: 0.85 * envelope),
       ),
@@ -393,13 +391,13 @@ void _paintNoteBubble(Canvas canvas, Offset center, String label, double envelop
       ..color = Palette.ink.withValues(alpha: 0.08 * envelope)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
   );
-  canvas.drawRRect(shape, Paint()..color = Palette.paper.withValues(alpha: 0.95 * envelope));
+  canvas.drawRRect(shape, Paint()..color = Palette.canvas.withValues(alpha: 0.95 * envelope));
   canvas.drawRRect(
     shape,
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
-      ..color = FluidColors.deepPurple.withValues(alpha: 0.35 * envelope),
+      ..color = Palette.fluidDeep.withValues(alpha: 0.35 * envelope),
   );
   painter.paint(canvas, Offset(center.dx - painter.width / 2, center.dy - painter.height / 2));
 }
@@ -495,8 +493,8 @@ class FluidFieldPainter extends CustomPainter {
         Offset.zero,
         Offset(size.width, size.height),
         [
-          FluidColors.lavender.withValues(alpha: _fillAlpha),
-          FluidColors.deepPurple.withValues(alpha: _fillAlpha),
+          Palette.fluid.withValues(alpha: _fillAlpha),
+          Palette.fluidDeep.withValues(alpha: _fillAlpha),
         ],
       )
       ..style = PaintingStyle.fill
@@ -513,7 +511,7 @@ class FluidFieldPainter extends CustomPainter {
         canvas.drawCircle(
           droplet.position,
           radius,
-          Paint()..color = FluidColors.highlight.withValues(alpha: 0.85 * fade),
+          Paint()..color = Palette.canvas.withValues(alpha: 0.85 * fade),
         );
       }
     }

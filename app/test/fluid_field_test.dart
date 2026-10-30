@@ -4,7 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:music_copilot_app/models/note.dart';
 import 'package:music_copilot_app/widgets/fluid_field.dart';
-import 'package:music_copilot_app/widgets/score_canvas.dart' show Phase, Scene;
+import 'package:music_copilot_app/session/scene.dart';
 
 Note _note(int midiPitch, double start, double end) => Note(
   pitch: 'x',
