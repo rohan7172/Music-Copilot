@@ -418,6 +418,44 @@ of the app rather than something that only shows up while recording):
   several simultaneously-sounding notes (a chord) each light up their
   own spike automatically — no separate chord-aware code path needed
 
+**Making the playback pulses feel musical, not rigid** (after the first
+version's pulses read as too big and too mechanically on/off):
+
+- **A release phase that spills past the note's own boundary, on
+  purpose**: the first version's envelope just stopped being considered
+  the instant `playhead > note.endTime` — a real cutoff, not a fade.
+  `_noteEnvelope` now keeps easing down for `_noteRelease` seconds
+  *after* `endTime`, and the loop in `_playbackAmplitude` (and
+  `activeNoteBubbles`) had to widen its own bound to match
+  (`note.endTime + _noteRelease`) or the release tail would simply never
+  be reached in the first place — the envelope and the code deciding
+  whether to even evaluate it have to agree on where a note's influence
+  actually ends
+- **Easing curves as a stand-in for inertia, not a literal spring**: the
+  reference prototype's own ripple physics (`step()` in `Inpiration/
+  ferroflow_music.html`) is a real spring/damper integrator, which needs
+  state carried across frames (position *and* velocity). Every function
+  in this file is deliberately a pure function of `(t, now, scene)` with
+  no history — adding a real spring would be the first exception to
+  that. `Curves.easeOutCubic`/`easeInCubic` on the attack/release get
+  most of the *feel* (gradual, never snapping) without that
+  architectural jump; a genuine integrator is the fallback if easing
+  curves alone don't read as weighty enough
+- **A little per-note timing jitter reads as "alive"**: `_noteTimingJitter`
+  (the same `sin(x)*43758.5453`-fraction hash this file already uses for
+  `_hashedRimPosition`) nudges each note's own attack/release duration by
+  ±15%, seeded off that note's `startTime` so it's stable rather than
+  re-rolled every frame. Small, but it's the difference between every
+  pop looking like a mechanically identical copy of the last one and
+  each one landing with its own slightly different timing
+- **Note-name bubbles fade with the same envelope that drives the
+  pulse**: `activeNoteBubbles` returns each currently-labelable pitch
+  class's loudest matching note *and* that note's own envelope value, so
+  `_paintNoteBubble`'s alpha is driven by the identical number shaping
+  the fluid's bump — the label and the bump always appear and disappear
+  in lockstep, rather than the label using its own separate fade timer
+  that could drift out of sync
+
 ## Talking to the backend
 
 - REST API basics — HTTP methods (`POST`), status codes, JSON as the data

@@ -210,6 +210,105 @@ void main() {
       expect(fieldLengthAt(cT, 1.0, scene), greaterThan(fieldLengthAt(cT, 1.0, nothingPlaying)));
       expect(fieldLengthAt(eT, 1.0, scene), greaterThan(fieldLengthAt(eT, 1.0, nothingPlaying)));
     });
+
+    test('a note does not pulse before its own start time', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 0.1
+        ..notes = [_note(60, 0.5, 1.5)];
+      // Actively playing, same instant, but nothing at all to sound yet -
+      // the "nothing currently active" baseline while playingAll is true
+      // (distinct from the idle-ripple fallback, which only kicks in when
+      // playingAll is false or there's no playhead at all).
+      final baseline = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 0.1;
+
+      expect(fieldLengthAt(0 / 12, 0.1, scene), fieldLengthAt(0 / 12, 0.1, baseline));
+    });
+
+    test('a note keeps pulsing briefly past its own end, then settles back down', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..notes = [_note(60, 0.0, 1.0)]; // ends at playhead 1.0
+
+      double cField(double playhead) {
+        scene.playhead = playhead;
+        return fieldLengthAt(0 / 12, playhead, scene);
+      }
+
+      final justAfterEnd = cField(1.05);
+      final longAfterEnd = cField(1.0 + 2.0); // well past any reasonable release window
+
+      final baseline = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 5.0;
+      final baselineLevel = fieldLengthAt(0 / 12, 5.0, baseline);
+
+      // Still elevated just after the note's literal end...
+      expect(justAfterEnd, greaterThan(baselineLevel));
+      // ...but back down to the resting level well after.
+      expect(longAfterEnd, closeTo(baselineLevel, 0.01));
+    });
+  });
+
+  group('activeNoteBubbles', () {
+    test('is empty outside settled/playing', () {
+      final analyzing = Scene()
+        ..phase = Phase.analyzing
+        ..playingAll = true
+        ..playhead = 1.0
+        ..notes = [_note(60, 0.5, 1.5)];
+      expect(activeNoteBubbles(analyzing), isEmpty);
+
+      final notPlaying = Scene()
+        ..phase = Phase.settled
+        ..playingAll = false
+        ..playhead = 1.0
+        ..notes = [_note(60, 0.5, 1.5)];
+      expect(activeNoteBubbles(notPlaying), isEmpty);
+    });
+
+    test('is empty right as a note starts, before it crosses the label threshold', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 0.5
+        ..notes = [_note(60, 0.5, 1.5)];
+      expect(activeNoteBubbles(scene), isEmpty);
+    });
+
+    test('labels a clearly-sounding note with its own pitch class', () {
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 1.0
+        ..notes = [_note(60, 0.5, 1.5)]; // pitch class 0
+
+      final bubbles = activeNoteBubbles(scene);
+      expect(bubbles, hasLength(1));
+      expect(bubbles.single.pitchClass, 0);
+      expect(bubbles.single.envelope, greaterThan(0));
+    });
+
+    test('picks the higher-envelope note when two notes share a pitch class', () {
+      final justStarted = _note(60, 0.95, 2.0); // low envelope, barely begun
+      final wellIntoIt = _note(72, 0.0, 2.0); // same pitch class (0), fully sounding
+      final scene = Scene()
+        ..phase = Phase.settled
+        ..playingAll = true
+        ..playhead = 1.0
+        ..notes = [justStarted, wellIntoIt];
+
+      final bubbles = activeNoteBubbles(scene);
+      final forC = bubbles.where((b) => b.pitchClass == 0);
+      expect(forC, hasLength(1));
+      expect(forC.single.note, wellIntoIt);
+    });
   });
 
   group('reachScale', () {
