@@ -55,4 +55,9 @@ class LineColors {
 class FluidColors {
   static const lavender = Color(0xFFB9ADEA);
   static const deepPurple = Color(0xFF5B4EA6);
+
+  /// A very light lavender-white — concentrated near each bump's crest
+  /// (see `widgets/fluid_field.dart`'s vertex-mesh highlight layer) for a
+  /// sense of light catching the liquid's surface, rather than a flat fill.
+  static const highlight = Color(0xFFEFE9FB);
 }

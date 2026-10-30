@@ -148,4 +148,41 @@ void main() {
       expect(muchLater, greaterThan(restingFloor + 0.1));
     });
   });
+
+  group('activeDroplet', () {
+    test('is null outside the recording phase, even with a recent peak', () {
+      final settled = Scene()
+        ..phase = Phase.settled
+        ..lastPeakAt = 1.0;
+      expect(activeDroplet(1.1, settled, size), isNull);
+    });
+
+    test('is null while recording until a peak has actually fired', () {
+      final recording = Scene()..phase = Phase.recording;
+      expect(activeDroplet(5.0, recording, size), isNull);
+    });
+
+    test('is non-null and moving for its duration right after a peak', () {
+      final recording = Scene()
+        ..phase = Phase.recording
+        ..lastPeakAt = 2.0;
+
+      final justAfter = activeDroplet(2.05, recording, size);
+      expect(justAfter, isNotNull);
+      expect(justAfter!.progress, inInclusiveRange(0.0, 1.0));
+
+      final later = activeDroplet(2.3, recording, size);
+      expect(later, isNotNull);
+      // It should have traveled further inward (farther from its own edge
+      // anchor) as progress advances, not sit frozen in one spot.
+      expect(later!.progress, greaterThan(justAfter.progress));
+    });
+
+    test('is null again once its duration has fully passed', () {
+      final recording = Scene()
+        ..phase = Phase.recording
+        ..lastPeakAt = 2.0;
+      expect(activeDroplet(2.0 + 5.0, recording, size), isNull);
+    });
+  });
 }

@@ -368,6 +368,46 @@ ferroflow_music.html`) without porting its fragment shader.
   around the rim (like liquid actually would) instead of every point
   snapping to life in lockstep
 
+**Polish pass — depth, shape-driven color, droplets** (after you said the
+shipped version still "looked cheap and unfinished"):
+
+- **`Canvas.drawVertices`, new to this app**: a flat `Path` fill, however
+  nicely shaped, reads as a colored blob with no sense of light. Flutter
+  can paint a triangle mesh with a *different color per vertex*
+  (`ui.Vertices(ui.VertexMode.triangleStrip, positions, colors: ...)`,
+  then `canvas.drawVertices(vertices, BlendMode.srcOver, paint)`) and
+  interpolates smoothly between them — exactly what's needed for "this
+  bump is catching the light, that one isn't," driven by data the file
+  already has (each rim sample's own `fraction` from `fieldLengthAt`)
+  rather than an unrelated gradient painted behind the shape
+- **Clip first, then layer loosely**: the highlight mesh's own "outer"
+  vertices are just `Offset.lerp(anchor, inner, 0.35)` — a rough
+  retreat toward the rim, not a geometrically exact second boundary.
+  That's fine because the mesh is drawn inside `canvas.save(); canvas
+  .clipPath(path); ...; canvas.restore();` — clipped to the exact same
+  path the base fill already uses, the one with the taper/fillet
+  geometry already solved. Any looseness in the highlight layer's own
+  edges is simply invisible, which is what let this be added without
+  touching (or risking) that already-correct geometry at all
+- **The meniscus stroke is its own `Path`, not the closed fill `Path`
+  restroked**: stroking the full closed shape would also trace a line
+  along the *outer* boundary — the screen's own bezel — which isn't the
+  surface that needs defining. Tracing just the inner (liquid/air)
+  boundary again as a second, open `Path` (same points, same
+  quadratic-bezier-through-midpoints smoothing as the fill's inner
+  curve) keeps the dark "edge" line exactly where a real liquid surface
+  would show one
+- **Droplets reuse `Scene.lastPeakAt` as a pure trigger, decoupled from
+  the shape itself**: the fluid's own shape is driven by the continuous,
+  volume-scaled wave in `_recordingAmplitude` — there's no single
+  "moment" left in that signal to spawn a one-off effect from. Rather
+  than inventing new state, `activeDroplet` reuses `Scene.lastPeakAt`
+  (a single timestamp, not a history — the same field the mascot's own
+  peak bob already reads) purely to decide *when* to show one droplet,
+  independent of how the fluid's own length is computed — a small
+  example of one `Scene` field serving two unrelated, independently-
+  tunable effects without coupling them together
+
 ## Talking to the backend
 
 - REST API basics — HTTP methods (`POST`), status codes, JSON as the data
