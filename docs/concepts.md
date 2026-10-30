@@ -255,8 +255,8 @@ detect more than loudness:
 
 ## The edge fluid field (`widgets/fluid_field.dart`)
 
-A liquid/metaball-style background hugging the top and side edges of the
-screen, approximating the look of a WebGL prototype (`Inpiration/
+A liquid-style background hugging the top and side edges of the screen,
+approximating the look of a WebGL prototype (`Inpiration/
 ferroflow_music.html`) without porting its fragment shader.
 
 - **Why not a real fragment shader**: the prototype renders via a
@@ -266,53 +266,59 @@ ferroflow_music.html`) without porting its fragment shader.
   shader into Skia's SkSL subset with no prior art in this codebase was
   judged more risk than it was worth for a visual that's explicitly meant
   to be tested and iterated on quickly
-- **The "goo" technique instead**: draw several blurred, additive capsule
-  shapes (`MaskFilter.blur` + `Paint.blendMode = BlendMode.plus`), then
-  sharpen the *merged* alpha edge with a contrast `ColorFilter.matrix` —
-  stock `Canvas`/`Paint` APIs, the same blur primitive already behind
-  `BoxShadow.blurRadius` elsewhere in this app, just composited by hand
-  instead of declared on a widget
-- **`saveLayer`, twice, nested**: the inner `saveLayer` isolates
-  `BlendMode.plus` so the spikes sum against each other and a
-  transparent backdrop, not against whatever the real canvas (lines,
-  mascot) already drew behind this painter in z-order — without it,
-  "additive" would mean "additive against the app's actual background,"
-  which looks wrong. The outer `saveLayer`'s `colorFilter` only applies
-  on `restore()`, which is what lets it sharpen the *already-merged*
-  alpha rather than each spike individually
-- **`ColorFilter.matrix`'s offset is 0–255, not 0–1** — unlike the rest
-  of this app's color math (`Color.withValues(alpha: ...)`), the 5th
-  column of a `ColorFilter.matrix` is in byte space. Getting this wrong
-  (treating `bias` as a 0–1 value) is the single most common mistake
-  with this API
-- **Arc-length, not angle, parameterization** for the edge the spikes
-  anchor to (`edgeAnchor`/`edgeInward`): the prototype places its 12
-  spikes by angle around a full circle, which is fine when every angle
-  is in play. Once the bottom of the screen is reserved for a future tab
-  bar, angle-slicing would bunch points at the two remaining corners;
-  walking a fixed arc-length around the left-top-right rim instead keeps
-  them evenly spaced
+- **One filled path, not a blurred "goo" blend** — the first version of
+  this painter drew many small blurred, additively-summed capsule shapes
+  (`MaskFilter.blur` + `BlendMode.plus`), then sharpened the merged alpha
+  with a contrast `ColorFilter.matrix`, chasing the prototype's metaball
+  look directly. In practice it failed silently: a Gaussian blur
+  conserves *total* alpha but spreads it over an area roughly
+  proportional to the blur radius squared, so a small or short shape's
+  *peak* intensity drops fast as blur radius grows — at idle, the spikes
+  were short enough that blurring then thresholding them left literally
+  nothing visible, and even during recording (longer spikes) the result
+  only read as faint, separate blobs, not a solid liquid body. The fix
+  was to stop reconstructing a shape's visibility from blurred alpha
+  math and just build the shape directly: one `Path` whose outer
+  boundary is the screen's own edge and whose inner boundary is a
+  smoothed, noise-driven wavy curve, filled solid. Visibility no longer
+  depends on tuning a blur radius against a contrast threshold — it's
+  just a filled polygon, so it's inherently "clearly visible"
+- **Arc-length, not angle, parameterization** for the rim the inner curve
+  is measured from (`edgeAnchor`/`edgeInward`): the prototype places its
+  12 spikes by angle around a full circle, which is fine when every
+  angle is in play. Once the bottom of the screen is reserved for a
+  future tab bar, angle-slicing would bunch points at the two remaining
+  corners; walking a fixed arc-length around the left-top-right rim
+  instead keeps them evenly spaced
 - **The bottom reservation is geometric, not a clip**: `edgeAnchor` never
   produces a point below `size.height * (1 - fluidBottomReserve)` in the
   first place, rather than drawing a full field and cutting off the
   bottom after the fact (which would risk a visible seam at the cut)
+- **The inner boundary is smoothed the same way `strokeMusicalLine` is**:
+  many sampled points connected with a quadratic bezier through each
+  pair's midpoint, not straight segments — what keeps the fluid's edge
+  reading as a flowing curve instead of a faceted polyline
 - **Randomized, not audio-driven, while recording** — an explicit,
   named scope cut: this step is about proving the visual reads as
-  liquid, not about pitch accuracy. `recordingLength` reuses the same
-  "two unrelated sines multiplied" noise trick as `ribbonWobbleY`
-  (continuous, so no extra smoothing is needed to avoid looking
-  jittery), rather than a literal `Random()` call or real pitch
-  detection. A later step can swap this one function for something
-  reading `Chord.pitchClasses`/`startTime`/`endTime` without touching
-  anything else in the file
+  liquid, not about pitch accuracy. `recordingLength`/`idleLength` reuse
+  the same "two unrelated sines multiplied" noise trick as
+  `ribbonWobbleY` (`_ripple`, continuous in both space and time, so
+  neighboring rim samples stay close together and nothing needs extra
+  smoothing to avoid jitter), rather than a literal `Random()` call or
+  real pitch detection — and both are clamped with a floor (0.5 while
+  recording, 0.22 at idle) so the band never pinches down to nothing at
+  any point around the rim. A later step can swap these two functions
+  for something reading `Chord.pitchClasses`/`startTime`/`endTime`
+  without touching anything else in the file
 - **Staggered entrance, reusing `Scene.introStart`**: rather than a new
   timestamp field, the fluid's grow-in reuses the same `introStart`/
   `introDuration` the mascot's wake-in and the line's `reveal` already
-  use, so all three land in the same window. Each spike's growth is
-  offset by a small, index-based stagger so the rim rises unevenly
-  (like liquid actually would), while blur/contrast separately ramp from
-  soft-and-diffuse to the resting sharp edge over the same window —
-  two different "progress" readings of one timestamp, not two fields
+  use, so all three land in the same window. Each rim point's growth is
+  offset by a small, position-based stagger so the band rises unevenly
+  around the rim (like liquid actually would), while the fill's blur
+  separately ramps from soft-and-diffuse to a small resting value over
+  the same window — two different "progress" readings of one timestamp,
+  not two fields
 
 ## Talking to the backend
 

@@ -14,14 +14,18 @@ import 'score_canvas.dart' show Phase, Scene, introDuration;
 /// fact.
 const fluidBottomReserve = 0.18;
 
-const _mainSpikeCount = 12;
-const _ambientSpikeCount = 10;
-const _totalSpikeCount = _mainSpikeCount + _ambientSpikeCount;
+/// How many points are sampled around the rim to build the fluid's wavy
+/// inner edge — high enough that the smoothed curve (see [FluidFieldPainter
+/// .paint]) reads as flowing, not faceted.
+const _rimSamples = 160;
 
-const _restBlurSigma = 14.0;
-const _startBlurSigma = 30.0;
-const _restContrast = 2.6;
-const _startContrast = 1.0;
+/// How far inward the fluid can reach, as a fraction of the canvas's
+/// shorter side.
+const _maxLenFraction = 0.34;
+
+const _restBlurSigma = 3.0;
+const _startBlurSigma = 18.0;
+const _fillAlpha = 0.88;
 
 /// A point on the fluid's rim (left edge, top edge, right edge — never the
 /// reserved bottom strip) for arc-length position [t] (0..1), given the
@@ -39,9 +43,9 @@ Offset edgeAnchor(double t, Size size, double bottomReserve) {
   return Offset(size.width, d - leftLen - topLen);
 }
 
-/// The direction a spike anchored at [t] grows inward — trivial per edge
-/// (no trig needed, unlike a generic rectangle-ray cast) since the rim is
-/// only ever one of three straight edges.
+/// The direction the fluid grows inward at rim position [t] — trivial per
+/// edge (no trig needed, unlike a generic rectangle-ray cast) since the rim
+/// is only ever one of three straight edges.
 Offset edgeInward(double t, Size size, double bottomReserve) {
   final fluidBottom = size.height * (1 - bottomReserve);
   final leftLen = fluidBottom, topLen = size.width;
@@ -52,24 +56,28 @@ Offset edgeInward(double t, Size size, double bottomReserve) {
   return const Offset(-1, 0);
 }
 
-/// Two unrelated sine frequencies multiplied — the same "organic,
-/// never-quite-looping" trick already used throughout this app
-/// (`ribbonWobbleY`, the ambient drift) — continuous, so it needs no extra
-/// smoothing to avoid reading as jittery, unlike a literal `Random()`.
-double _noise(int i, double t) =>
-    0.5 + 0.5 * math.sin(t * 1.7 + i * 2.31) * math.sin(t * 0.73 + i * 1.13);
+/// Two unrelated sine frequencies multiplied, [x] as the spatial phase (the
+/// same role `f` plays in `ribbonWobbleY`) — the same "organic,
+/// never-quite-looping" trick already used throughout this app. Continuous
+/// in both [x] and [now], so neighboring rim samples stay close together
+/// (no faceting) and nothing needs extra smoothing to avoid jitter.
+double _ripple(double x, double now) =>
+    0.5 + 0.5 * math.sin(now * 1.7 + x * 2.31) * math.sin(now * 0.73 + x * 1.13);
 
-/// 0..1 length fraction for spike [i] while recording — randomized, not
-/// audio-driven: note-wise accuracy is explicitly out of scope for this
-/// step (see docs/concepts.md), this is a depiction of "something is
-/// flowing," not a detector.
-double recordingLength(int i, double now) =>
-    (0.45 + 0.4 * _noise(i, now * 0.5) + 0.15 * _noise(i + 31, now * 1.8))
+/// 0..1 how far inward the fluid reaches at rim position [t] while
+/// recording — randomized, not audio-driven: note-wise accuracy is
+/// explicitly out of scope for this step (see docs/concepts.md), this is a
+/// depiction of "something is flowing," not a detector. Never drops below
+/// 0.5, so the band always reads as a solid, clearly visible body rather
+/// than pinching to nothing at some points around the rim.
+double recordingLength(double t, double now) =>
+    (0.5 + 0.35 * _ripple(t * 9.0, now * 1.0) + 0.15 * _ripple(t * 21.0, now * 2.4))
         .clamp(0.0, 1.0);
 
-/// 0..1 length fraction at rest (idle, or fading out while analyzing) — a
-/// low, slow simmer rather than fully flat.
-double idleLength(int i, double now) => 0.08 + 0.10 * _noise(i, now * 0.15);
+/// 0..1 how far inward the fluid reaches at rest (idle, or fading out while
+/// analyzing) — a low, slow simmer, never below 0.22.
+double idleLength(double t, double now) =>
+    (0.22 + 0.10 * _ripple(t * 6.0, now * 0.3)).clamp(0.0, 1.0);
 
 /// 1 while idle/recording, easing to 0 over the first 0.5s of analyzing (so
 /// the fluid recedes rather than cutting), 0 once settled — Step 2 fills
@@ -88,49 +96,41 @@ double _phaseVisibility(Scene scene, double now) {
   }
 }
 
-/// 0 before the home screen's fluid has started growing in, 1 once fully
-/// grown — [i] staggers each spike's own growth across a small span so the
-/// rim rises unevenly, like liquid, rather than every spike snapping to
+/// 0 before rim position [t] has started growing in, 1 once fully grown.
+/// [t] staggers each point's own growth across a small span of
+/// [introDuration] so the fluid reads as flowing in around the rim from one
+/// side, like liquid actually would, rather than every point snapping to
 /// life in lockstep.
-double _entranceGrowth(double now, double? introStart, int i, int n) {
+double _entranceGrowthAt(double now, double? introStart, double t) {
   if (introStart == null) return 1.0;
   const staggerSpan = 0.5;
-  final staggerOffset = (i / n) * staggerSpan;
+  final staggerOffset = t * staggerSpan;
   final local = ((now - introStart - staggerOffset) / (introDuration - staggerSpan))
       .clamp(0.0, 1.0);
   return Curves.easeOutCubic.transform(local);
 }
 
-/// 0..1 overall (non-staggered) entrance progress — drives the blur/contrast
-/// ramp described in [FluidFieldPainter.paint], separate from each spike's
-/// own staggered growth.
+/// 0..1 overall (non-staggered) entrance progress — drives the blur ramp in
+/// [FluidFieldPainter.paint], separate from each point's own staggered
+/// growth.
 double _entranceProgress(double now, double? introStart) {
   if (introStart == null) return 1.0;
   return ((now - introStart) / introDuration).clamp(0.0, 1.0);
 }
 
-/// Sharpens a blurred, additively-summed alpha channel back into a clean
-/// liquid edge. Note: the matrix's offset column is in 0–255 space, not the
-/// 0–1 space the rest of this app's color math uses — the most common
-/// mistake with this API.
-ColorFilter _contrastSharpen(double contrast) {
-  final bias = -0.5 * (contrast - 1) * 255;
-  return ColorFilter.matrix([
-    1, 0, 0, 0, 0,
-    0, 1, 0, 0, 0,
-    0, 0, 1, 0, 0,
-    0, 0, 0, contrast, bias,
-  ]);
-}
-
 /// A liquid/metaball-style field hugging the top and side edges of the
 /// screen, leaving the bottom [fluidBottomReserve] clear for a future tab
-/// bar. Approximates the metaball look of `Inpiration/ferroflow_music.html`
-/// with a "goo" technique — blurred, additively-summed spike capsules,
-/// sharpened back to a clean edge with a contrast filter — rather than a
-/// ported fragment shader: this app has no existing shader infrastructure
-/// and runs on Flutter web only, so stock `Canvas`/`Paint` primitives
-/// (the same ones behind `BoxShadow.blurRadius`) are the lower-risk choice.
+/// bar. Approximates the look of `Inpiration/ferroflow_music.html` as one
+/// continuous, solidly filled band — the screen's own edge as the outer
+/// boundary, a smoothed, noise-driven wavy curve as the inner boundary —
+/// rather than a blur-and-threshold blend of many small shapes: a first
+/// version tried that (blurred, additively-summed spike capsules sharpened
+/// back with a contrast filter), but small/short spikes lost so much mass
+/// to the blur that they vanished entirely, and even the larger
+/// recording-time spikes only read as faint, separate blobs rather than a
+/// solid, clearly visible liquid body. A single filled path has no such
+/// failure mode: its visibility never depends on tuning a blur radius
+/// against a contrast threshold.
 ///
 /// Timestamp-driven off [clock], like every other painter in this app — no
 /// `AnimationController`. Reads only [Scene.phase]/[Scene.introStart]/
@@ -147,86 +147,59 @@ class FluidFieldPainter extends CustomPainter {
     final visibility = _phaseVisibility(scene, now);
     if (visibility <= 0) return;
 
-    final bounds = Rect.fromLTWH(0, 0, size.width, size.height);
+    final fluidBottom = size.height * (1 - fluidBottomReserve);
+    final maxLen = math.min(size.width, size.height) * _maxLenFraction;
     final entranceT = Curves.easeOut.transform(
       _entranceProgress(now, scene.introStart),
     );
     final blurSigma = ui.lerpDouble(_startBlurSigma, _restBlurSigma, entranceT)!;
-    final contrast = ui.lerpDouble(_startContrast, _restContrast, entranceT)!;
 
-    // Two nested layers: the inner isolates `BlendMode.plus` so spikes sum
-    // against each other and a transparent backdrop, not against the real
-    // lines/mascot sitting behind this painter in z-order; the outer's
-    // `colorFilter` sharpens the *merged* alpha only on restore().
-    canvas.saveLayer(bounds, Paint()..colorFilter = _contrastSharpen(contrast));
-    canvas.saveLayer(bounds, Paint());
-
-    for (var i = 0; i < _mainSpikeCount; i++) {
-      _paintSpike(
-        canvas,
-        size,
-        now,
-        seed: i,
-        t: i / _mainSpikeCount,
-        isMain: true,
-        visibility: visibility,
-        blurSigma: blurSigma,
-        entranceGrowth: _entranceGrowth(now, scene.introStart, i, _totalSpikeCount),
-      );
-    }
-    for (var j = 0; j < _ambientSpikeCount; j++) {
-      final seed = _mainSpikeCount + j;
-      _paintSpike(
-        canvas,
-        size,
-        now,
-        seed: seed,
-        t: (j + 0.5) / _ambientSpikeCount,
-        isMain: false,
-        visibility: visibility,
-        blurSigma: blurSigma,
-        entranceGrowth: _entranceGrowth(now, scene.introStart, seed, _totalSpikeCount),
-      );
+    Offset innerPoint(double t) {
+      final anchor = edgeAnchor(t, size, fluidBottomReserve);
+      final inward = edgeInward(t, size, fluidBottomReserve);
+      final fraction = scene.phase == Phase.recording
+          ? recordingLength(t, now)
+          : idleLength(t, now);
+      final growth = _entranceGrowthAt(now, scene.introStart, t);
+      final length = maxLen * fraction * growth * visibility;
+      return anchor + inward * length;
     }
 
-    canvas.restore();
-    canvas.restore();
-  }
+    // Outer boundary: the screen's own rim, corner to corner — the fluid's
+    // outer edge is always exactly the edge of the screen.
+    final path = Path()
+      ..moveTo(0, fluidBottom)
+      ..lineTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width, fluidBottom);
 
-  void _paintSpike(
-    Canvas canvas,
-    Size size,
-    double now, {
-    required int seed,
-    required double t,
-    required bool isMain,
-    required double visibility,
-    required double blurSigma,
-    required double entranceGrowth,
-  }) {
-    final anchor = edgeAnchor(t, size, fluidBottomReserve);
-    final inward = edgeInward(t, size, fluidBottomReserve);
-    final lengthFraction = scene.phase == Phase.recording
-        ? recordingLength(seed, now)
-        : idleLength(seed, now);
-    final maxLen = math.min(size.width, size.height) * (isMain ? 0.30 : 0.20);
-    final length = maxLen * lengthFraction * entranceGrowth * visibility;
-    if (length <= 0.5) return;
-    final tip = anchor + inward * length;
-    canvas.drawLine(
-      anchor,
-      tip,
-      Paint()
-        ..color = Color.lerp(
-          FluidColors.lavender,
-          FluidColors.deepPurple,
-          lengthFraction,
-        )!.withValues(alpha: 0.55)
-        ..strokeWidth = isMain ? 15.0 : 9.0
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blurSigma)
-        ..blendMode = BlendMode.plus,
-    );
+    // Inner boundary: the wavy, noise-driven curve, traced back from t=1 to
+    // t=0 and smoothed with the same quadratic-bezier-through-midpoints
+    // technique `strokeMusicalLine` uses, so it reads as a flowing curve
+    // rather than a faceted polyline.
+    final inner = <Offset>[
+      for (var i = _rimSamples; i >= 0; i--) innerPoint(i / _rimSamples),
+    ];
+    path.lineTo(inner.first.dx, inner.first.dy);
+    for (var i = 1; i < inner.length; i++) {
+      final mid = Offset.lerp(inner[i - 1], inner[i], 0.5)!;
+      path.quadraticBezierTo(inner[i - 1].dx, inner[i - 1].dy, mid.dx, mid.dy);
+    }
+    path.lineTo(inner.last.dx, inner.last.dy);
+    path.close();
+
+    final paint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset.zero,
+        Offset(size.width, size.height),
+        [
+          FluidColors.lavender.withValues(alpha: _fillAlpha * visibility),
+          FluidColors.deepPurple.withValues(alpha: _fillAlpha * visibility),
+        ],
+      )
+      ..style = PaintingStyle.fill
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, blurSigma);
+    canvas.drawPath(path, paint);
   }
 
   @override

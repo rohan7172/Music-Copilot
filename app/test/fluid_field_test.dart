@@ -44,10 +44,19 @@ void main() {
 
   group('recordingLength / idleLength', () {
     test('always stay within 0..1 across a spread of inputs', () {
-      for (var i = 0; i < 22; i++) {
-        for (var t = 0.0; t < 20.0; t += 0.37) {
-          expect(recordingLength(i, t), inInclusiveRange(0.0, 1.0));
-          expect(idleLength(i, t), inInclusiveRange(0.0, 1.0));
+      for (var t = 0.0; t <= 1.0; t += 0.05) {
+        for (var now = 0.0; now < 20.0; now += 0.37) {
+          expect(recordingLength(t, now), inInclusiveRange(0.0, 1.0));
+          expect(idleLength(t, now), inInclusiveRange(0.0, 1.0));
+        }
+      }
+    });
+
+    test('never pinches to near-zero width', () {
+      for (var t = 0.0; t <= 1.0; t += 0.05) {
+        for (var now = 0.0; now < 20.0; now += 0.37) {
+          expect(recordingLength(t, now), greaterThanOrEqualTo(0.5));
+          expect(idleLength(t, now), greaterThanOrEqualTo(0.22));
         }
       }
     });
