@@ -15,6 +15,7 @@ from app.timing import BeatGrid
 
 _MIN_CONFIDENCE = 0.3
 _MIN_NOTE = 0.08  # seconds; shorter notes are blips
+_FRAGMENT = 0.24  # seconds; a same-pitch piece this short is part of its neighbour
 
 
 def classify_input(notes: list[dict]) -> str:
@@ -76,10 +77,18 @@ def extract_melody(notes: list[dict]) -> list[dict]:
         n = {k: v for k, v in seg.items() if k != "_source"}
         if n["end_time"] - n["start_time"] < _MIN_NOTE:
             continue
+        # Basic Pitch reports a re-sung repeated note as a new event starting
+        # right where the last one ended, so abutting isn't enough to merge:
+        # only a short fragment (a split-up note) joins its neighbour.
         if (
             merged
             and merged[-1]["midi_pitch"] == n["midi_pitch"]
             and n["start_time"] - merged[-1]["end_time"] <= 0.05
+            and min(
+                n["end_time"] - n["start_time"],
+                merged[-1]["end_time"] - merged[-1]["start_time"],
+            )
+            < _FRAGMENT
         ):
             merged[-1]["end_time"] = n["end_time"]
             merged[-1]["confidence"] = max(merged[-1]["confidence"], n["confidence"])

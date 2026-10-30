@@ -39,12 +39,17 @@ def test_melody_keeps_the_top_line():
     assert line[-1]["start_time"] == 1.5  # the low note only shows once the tune stops
 
 
-def test_melody_drops_blips_and_merges_repeats():
-    played = [_note(C4, 0.0, 0.5), _note(C4, 0.52, 1.0), _note(E4, 1.0, 1.04), _note(G4, 1.1, 1.6)]
+def test_melody_keeps_repeated_notes_but_rejoins_fragments():
+    played = [
+        _note(C4, 0.0, 0.5), _note(C4, 0.5, 1.0),  # sung twice, abutting
+        _note(E4, 1.0, 1.04),  # a blip
+        _note(G4, 1.1, 1.5), _note(G4, 1.5, 1.65),  # one note split in two
+    ]
     line = extract_melody(played)
     assert [(n["midi_pitch"], n["start_time"], n["end_time"]) for n in line] == [
-        (C4, 0.0, 1.0),
-        (G4, 1.1, 1.6),
+        (C4, 0.0, 0.5),
+        (C4, 0.5, 1.0),
+        (G4, 1.1, 1.65),
     ]
 
 
