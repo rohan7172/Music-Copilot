@@ -15,14 +15,30 @@ _DATA = Path(__file__).resolve().parent.parent / "data" / "progression_prior.jso
 _FLOOR = 1e-4
 
 
+# The prior judges the move between chord *families* (V to I), not the
+# exact quality: chord sheets in the corpus often write G7 as plain G, so
+# sevenths look rarer than they're played, and whether to colour a chord
+# is the melody's and the style's call, not the corpus's.
+_FAMILY = {"maj": "maj", "7": "maj", "maj7": "maj", "aug": "maj", "sus4": "maj", "sus2": "maj",
+           "min": "min", "m7": "min", "dim": "dim", "m7b5": "dim"}
+
+
+def reduce_token(token: str) -> str:
+    interval, _, quality = token.partition(":")
+    return f"{interval}:{_FAMILY.get(quality, quality)}"
+
+
 class ProgressionPrior:
     def __init__(self, data: dict):
         self._modes = data["modes"]
         self.source = data.get("source", "corpus")
 
     def log_prob(self, mode: str, prev2: str | None, prev1: str | None, token: str) -> float:
-        """Smoothed log P(token | prev2, prev1), backing off to the bigram
-        and then the unigram when there's too little evidence."""
+        """Smoothed log P(token | prev2, prev1) over chord families, backing
+        off to the bigram and then the unigram when there's little evidence."""
+        token = reduce_token(token)
+        prev1 = reduce_token(prev1) if prev1 else None
+        prev2 = reduce_token(prev2) if prev2 else None
         table = self._modes[mode]
         uni = table["unigram"]
         total = table["_total"]
@@ -42,15 +58,28 @@ class ProgressionPrior:
         return math.log(max(p, _FLOOR))
 
     def share(self, mode: str, token: str) -> float:
-        """How common the chord is overall in this mode (0..1)."""
+        """How common the chord family is overall in this mode (0..1)."""
         table = self._modes[mode]
-        return table["unigram"].get(token, 0) / max(table["_total"], 1)
+        return table["unigram"].get(reduce_token(token), 0) / max(table["_total"], 1)
+
+
+def _reduce(counts: dict) -> dict:
+    out: dict[str, float] = {}
+    for key, value in counts.items():
+        reduced = "|".join(reduce_token(t) for t in key.split("|"))
+        out[reduced] = out.get(reduced, 0) + value
+    return out
 
 
 def _prepare(data: dict) -> dict:
-    for table in data["modes"].values():
-        table["_total"] = sum(table["unigram"].values())
-        table.setdefault("trigram", {})
+    for mode, table in data["modes"].items():
+        reduced = {
+            "unigram": _reduce(table["unigram"]),
+            "bigram": _reduce(table["bigram"]),
+            "trigram": _reduce(table.get("trigram", {})),
+        }
+        reduced["_total"] = sum(reduced["unigram"].values())
+        data["modes"][mode] = reduced
     return data
 
 
@@ -87,8 +116,31 @@ def _rule_based() -> dict:
     return {"source": "rules", "modes": modes}
 
 
+class BlendedPrior:
+    """Corpus habits mixed with textbook function. The corpus is mostly pop
+    and rock, so on its own it pulls every tune toward I–IV–I loops; the
+    functional half keeps folk and classical-style tunes sounding like
+    themselves. `corpus_share` is the dial a style preset can turn later."""
+
+    def __init__(self, corpus: ProgressionPrior, rules: ProgressionPrior, corpus_share: float = 0.5):
+        self._corpus = corpus
+        self._rules = rules
+        self._share = corpus_share
+        self.source = "corpus+rules"
+
+    def log_prob(self, mode, prev2, prev1, token) -> float:
+        a = math.exp(self._corpus.log_prob(mode, prev2, prev1, token))
+        b = math.exp(self._rules.log_prob(mode, prev2, prev1, token))
+        return math.log(max(self._share * a + (1 - self._share) * b, _FLOOR))
+
+    def share(self, mode, token) -> float:
+        return self._corpus.share(mode, token)
+
+
 @lru_cache(maxsize=1)
-def load_prior() -> ProgressionPrior:
+def load_prior() -> ProgressionPrior | BlendedPrior:
+    rules = ProgressionPrior(_prepare(_rule_based()))
     if _DATA.exists():
-        return ProgressionPrior(_prepare(json.loads(_DATA.read_text())))
-    return ProgressionPrior(_prepare(_rule_based()))
+        corpus = ProgressionPrior(_prepare(json.loads(_DATA.read_text())))
+        return BlendedPrior(corpus, rules)
+    return rules

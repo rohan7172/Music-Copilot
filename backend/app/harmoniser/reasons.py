@@ -122,11 +122,19 @@ def insight(melody: list[dict], slots: list[scoring.Slot], safe: list[Chord], ke
     if not melody or not safe:
         return None
     last = melody[-1]
-    if last["midi_pitch"] % 12 == key.tonic and len(safe) >= 2 and safe[-2].function == "dominant":
-        return (
-            f"Your tune ends on {key.name_of(key.tonic)}, its home note, so "
-            f"{safe[-2].symbol(key)} right before it makes a strong ending."
-        )
+    if last["midi_pitch"] % 12 == key.tonic and len(safe) >= 2:
+        home = key.name_of(key.tonic)
+        before = safe[-2]
+        if before.function == "dominant":
+            return (
+                f"Your tune ends on {home}, its home note, so "
+                f"{before.symbol(key)} right before it makes a strong ending."
+            )
+        if (before.root - key.tonic) % 12 == 5:
+            return (
+                f"Your tune ends on {home}, its home note; {before.symbol(key)} before it "
+                f"gives the soft 'Amen' ending, and a {key.name_of(key.tonic + 7)} there would close it harder."
+            )
     longest = max(melody, key=lambda n: n["end_time"] - n["start_time"])
     beats = (longest["end_time"] - longest["start_time"]) / grid.beat_length
     if beats >= 1.5:

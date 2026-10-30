@@ -35,7 +35,7 @@ _SYMBOL_SUFFIX = {
 KEY_COST = {
     "diatonic": 0.0,
     "seventh": 0.12,
-    "sus": 0.35,
+    "sus": 0.5,
     "secondary": 0.45,
     "borrowed": 0.55,
     "chromatic": 0.9,

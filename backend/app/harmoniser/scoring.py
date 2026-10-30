@@ -173,9 +173,18 @@ def melody_fit(chord: Chord, slot: Slot) -> float:
             severe = n.strength >= 0.75 or n.beats >= 1.0
             score += n.weight * (-1.4 if severe else -0.8)
         elif kind == TONE:
-            score += n.weight
+            # The seventh is a chord tone, but a dissonant one: it earns
+            # less than the root, third or fifth, so four-note chords don't
+            # win just by having more notes to match.
+            seventh = len(chord.pcs) == 4 and (n.pc - chord.root) % 12 in (10, 11)
+            score += n.weight * (0.65 if seventh else 1.0)
         elif kind == COLOUR:
             score += n.weight * colour_credit(n.pc, chord)
+        elif kind == PASSING:
+            # Explained by the line it moves along, so half credit: a chord
+            # that keeps the strong beats as its own tones while the tune
+            # passes between them is a good fit, not a diluted one.
+            score += n.weight * 0.5
     return score / total
 
 
@@ -216,7 +225,7 @@ def cadence(prev: Chord | None, chord: Chord, slot: Slot, key: Key, first: bool)
     to close, IV→I for the softer 'Amen', or pausing on V to leave the
     phrase open."""
     interval = (chord.root - key.tonic) % 12
-    home = interval == 0 and chord.quality in ("maj", "min", "maj7", "m7", "sus2")
+    home = interval == 0 and chord.quality in ("maj", "min", "maj7", "m7")
     score = 0.0
     if first and home:
         score += 0.35

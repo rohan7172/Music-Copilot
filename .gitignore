@@ -22,3 +22,6 @@ app/.idea/
 
 # dev.sh logs
 .dev/
+
+# Raw datasets (rebuild derived tables with scripts/)
+backend/data_raw/

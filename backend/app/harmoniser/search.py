@@ -28,8 +28,8 @@ class Profile:
     surprise_bonus: float = 0.0  # reward for borrowed / secondary / chromatic chords
 
 
-SAFE = Profile(key=2.5, prior=0.8)
-COLOURFUL = Profile(key=0.45, prior=0.5, colour_bonus=0.3)
+SAFE = Profile(melody=4.0, key=4.0, prior=0.5)
+COLOURFUL = Profile(key=0.45, prior=0.4, colour_bonus=0.3)
 SURPRISING = Profile(key=0.2, prior=0.25, surprise_bonus=0.7)
 
 
@@ -58,7 +58,7 @@ class Path:
 # changes, not held bars, so the corpus can't judge it. A held chord gets
 # this neutral value instead, and `scoring.repetition` decides when a hold
 # has gone on too long.
-HOLD_LOG_P = math.log(0.12)
+HOLD_LOG_P = math.log(0.22)
 
 
 def _log_p(prior: ProgressionPrior, key: Key, chords: tuple[Chord, ...], c: Chord) -> float:
@@ -123,7 +123,7 @@ def search(
                     + profile.motion * motion
                     + profile.cadence * cad
                     + rep
-                    + (profile.colour_bonus if c.is_colour else 0.0)
+                    + (profile.colour_bonus if c.kind in ("seventh", "borrowed", "secondary") else 0.0)
                     + (profile.surprise_bonus if c.kind in _SURPRISE_KINDS else 0.0)
                 )
                 grown.append(
@@ -158,35 +158,85 @@ def pick_three(slots, key, prior) -> dict[str, Path | None]:
     if safe is None:
         return {"safe": None, "colourful": None, "surprising": None}
 
+    def opens_and_closes_home(p: Path) -> bool:
+        return p.chords[0].function == "tonic" and p.chords[-1].function == "tonic"
+
+    def few_sus(p: Path, most: int) -> bool:
+        return sum(c.kind == "sus" for c in p.chords) <= most
+
+    colour_paths = search(slots, key, prior, COLOURFUL)
     colourful = next(
         (
             p
-            for p in search(slots, key, prior, COLOURFUL)
+            for p in colour_paths
             if any(c.is_colour for c in p.chords)
+            and few_sus(p, max(1, n // 4))
             and differs(p.chords, safe.chords) >= need
-            and p.chords[-1].function == "tonic"
+            and opens_and_closes_home(p)
         ),
+        None,
+    ) or next(
+        # A short or very plain tune may not allow a third of the bars to
+        # change; then any coloured alternative will do.
+        (p for p in colour_paths if any(c.is_colour for c in p.chords) and differs(p.chords, safe.chords) >= 1),
         None,
     )
 
     taken = [safe.chords] + ([colourful.chords] if colourful else [])
-    # A surprise is one or two well-placed turns, so it only has to differ
-    # in a quarter of the slots.
-    need_surprise = max(1, math.ceil(n / 4))
-    surprising = next(
-        (
-            p
-            for p in search(slots, key, prior, SURPRISING, beam=90)
-            if all(differs(p.chords, t) >= need_surprise for t in taken)
-            and any(c.kind in _SURPRISE_KINDS for c in p.chords)
-            and p.chords[-1].function == "tonic"
-            and sum(c.kind == "sus" for c in p.chords) <= max(1, n // 4)
-            and all(s.fit >= 0.25 or slot.empty for s, slot in zip(p.steps, slots))
-            and not any(scoring.has_strong_clash(s.chord, slot) for s, slot in zip(p.steps, slots))
-        ),
-        None,
-    )
+    surprising = _with_turns(slots, key, prior, safe, taken)
     return {"safe": safe, "colourful": colourful, "surprising": surprising}
+
+
+def _resolves(c: Chord, nxt: Chord | None, key: Key) -> float:
+    """How well an out-of-key chord leads on: a secondary dominant should
+    land on the chord it's the dominant of (a fifth below), a borrowed
+    chord back on home or the dominant."""
+    if nxt is None:
+        return 0.0
+    if c.kind == "secondary":
+        return 1.0 if (nxt.root - c.root) % 12 == 5 else -0.6
+    if c.kind == "borrowed":
+        return 0.6 if (nxt.root - key.tonic) % 12 in (0, 7) else 0.0
+    return 0.0
+
+
+def _with_turns(slots, key, prior, safe: Path, taken) -> Path | None:
+    """Surprising: the Safe progression with one or two well-placed turns —
+    a borrowed or secondary chord the melody still fits, ideally one that
+    resolves properly into what follows. Never the first or last bar."""
+    vocab = [c for c in vocabulary(key) if c.kind in _SURPRISE_KINDS]
+    base = list(safe.chords)
+    n = len(slots)
+
+    def turn_value(chords: list[Chord], i: int) -> float:
+        c = chords[i]
+        fit = scoring.melody_fit(c, slots[i])
+        nxt = chords[i + 1] if i + 1 < n else None
+        rarity = -math.log(max(prior.share(key.mode, c.token(key)), 1e-4))
+        return 3.0 * fit + _resolves(c, nxt, key) + 0.15 * rarity
+
+    options: list[tuple[float, int, Chord]] = []
+    for i in range(1, n - 1):
+        slot = slots[i]
+        for c in vocab:
+            if slot.empty or scoring.has_strong_clash(c, slot) or scoring.melody_fit(c, slot) < 0.4:
+                continue
+            trial = base[:i] + [c] + base[i + 1 :]
+            options.append((turn_value(trial, i), i, c))
+    if not options:
+        return None
+    options.sort(key=lambda o: -o[0])
+
+    best_value, i, c = options[0]
+    chords = base[:i] + [c] + base[i + 1 :]
+    # A second turn, if a good one exists well away from the first.
+    for value, j, d in options[1:]:
+        if abs(j - i) >= 2 and value >= best_value - 0.8 and n >= 6:
+            chords[j] = d
+            break
+    if any(differs(tuple(chords), t) == 0 for t in taken):
+        return None
+    return score_fixed(slots, key, prior, chords, SURPRISING)
 
 
 def score_fixed(slots, key, prior, chords: list[Chord], profile: Profile = COLOURFUL) -> Path:
