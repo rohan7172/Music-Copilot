@@ -296,6 +296,21 @@ double _playbackAmplitude(int k, double now, Scene scene) {
 /// [introDuration] so the fluid reads as flowing in around the rim from one
 /// side, like liquid actually would, rather than every point snapping to
 /// life in lockstep.
+/// 0..1: how much of the header band the fluid has filled. During the
+/// intro (the hand-off from the splash) the liquid pours down from the top
+/// edge to become the header bar; otherwise it's simply full.
+double headerFill(Scene scene, double now) {
+  final start = scene.introStart;
+  if (start == null) return 1.0;
+  final t = ((now - start - 0.1) / 1.0).clamp(0.0, 1.0);
+  return Curves.easeInOutCubic.transform(t);
+}
+
+/// 0..1: the header's title and button fade in only once the liquid has
+/// mostly arrived beneath them, so the fluid reveals them.
+double headerContentReveal(Scene scene, double now) =>
+    ((headerFill(scene, now) - 0.6) / 0.4).clamp(0.0, 1.0);
+
 double _entranceGrowthAt(double now, double? introStart, double t) {
   if (introStart == null) return 1.0;
   const staggerSpan = 0.5;
@@ -381,36 +396,45 @@ const _dropletDuration = 0.65;
 /// the *feel* of weight/momentum without that architectural jump; if it
 /// still reads as too mechanical, a real integrator is the next step up.
 class FluidFieldPainter extends CustomPainter {
-  FluidFieldPainter(this.scene, this.clock) : super(repaint: clock);
+  FluidFieldPainter(this.scene, this.clock, {this.topInset = 0})
+    : super(repaint: clock);
 
   final Scene scene;
   final ValueListenable<double> clock;
 
+  /// Height of a solid band of fluid across the top (the header bar sits
+  /// on it). The field's own rim starts below the band, so the bar and the
+  /// walls are one continuous body of liquid. The band floods in from the
+  /// top edge during the intro — see [headerFill].
+  final double topInset;
+
   @override
   void paint(Canvas canvas, Size size) {
     final now = clock.value;
+    final band = topInset * headerFill(scene, now);
+    final field = Size(size.width, size.height - band);
     final maxLen =
-        math.min(size.width, size.height) *
+        math.min(field.width, field.height) *
         _maxLenFraction *
         reachScale(scene, now);
 
     Offset innerPoint(double t) {
-      final anchor = edgeAnchor(t, size);
-      final inward = edgeInward(t, size);
+      final anchor = edgeAnchor(t, field) + Offset(0, band);
+      final inward = edgeInward(t, field);
       final fraction = fieldLengthAt(t, now, scene);
       final growth = _entranceGrowthAt(now, scene.introStart, t);
-      final taper = edgeTaper(t, size);
+      final taper = edgeTaper(t, field);
       final length = maxLen * fraction * growth * taper;
       return anchor + inward * length;
     }
 
     // Outer boundary: the screen's own rim, corner to corner, down to the
-    // true bottom-left/bottom-right points — with a small fillet rounding
-    // the two top corners instead of a hard right angle.
-    final cornerR = math.min(
-      _topCornerRadius,
-      math.min(size.width, size.height) / 2,
-    );
+    // true bottom-left/bottom-right points. On its own the field rounds
+    // its two top corners with a small fillet; under a header band the
+    // corners belong to the canvas's own rounded clip instead.
+    final cornerR = topInset > 0
+        ? 0.0
+        : math.min(_topCornerRadius, math.min(size.width, size.height) / 2);
     final path = Path()
       ..moveTo(0, size.height)
       ..lineTo(0, cornerR)
@@ -468,5 +492,5 @@ class FluidFieldPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(FluidFieldPainter oldDelegate) =>
-      oldDelegate.scene != scene;
+      oldDelegate.scene != scene || oldDelegate.topInset != topInset;
 }

@@ -52,8 +52,12 @@ tabular figures.
 
 ## Components (`app/lib/widgets/`)
 
-- **AppFrame / AppHeader** — bezel, canvas, "Music Copilot" + an `upload`
-  pill (hidden while recording/analyzing). Content centers at 480 max
+- **AppFrame / AppHeader** — bezel, canvas, and a header bar that is part
+  of the edge fluid: white "Music Copilot" (18px w700, large-text
+  contrast on lavender) + an `upload` pill (hidden while
+  recording/analyzing). After the splash the liquid pours down from the
+  top edge to form the bar, and the title and pill fade in once it's
+  under them. Content centers at 480 max
   width on wide windows.
 - **Pressable** — shared press feedback (scale 0.95), pointer cursor,
   keyboard activation, semantics. Under **PillButton** (primary / soft /

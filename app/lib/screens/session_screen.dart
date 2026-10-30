@@ -45,23 +45,32 @@ class _SessionScreenState extends State<SessionScreen>
           final phase = _controller.phase;
           final busy = phase == Phase.recording || phase == Phase.analyzing;
           final (key, view) = _viewFor(phase);
+          final upload = busy
+              ? null
+              : PillButton(
+                  key: const ValueKey('upload'),
+                  label: 'upload',
+                  icon: Icons.upload_rounded,
+                  textStyle: TextStyles.labelMd,
+                  onTap: _controller.pickAndAnalyzeFile,
+                );
           return AppFrame(
-            header: AppHeader(
-              action: busy
-                  ? null
-                  : PillButton(
-                      key: const ValueKey('upload'),
-                      label: 'upload',
-                      icon: Icons.upload_rounded,
-                      textStyle: TextStyles.labelMd,
-                      onTap: _controller.pickAndAnalyzeFile,
-                    ),
+            // The header sits on the fluid, which pours in to form the bar
+            // right after the splash; its contents fade in once the liquid
+            // is under them.
+            header: ValueListenableBuilder<double>(
+              valueListenable: _controller.clock,
+              builder: (context, now, _) => AppHeader(
+                action: upload,
+                reveal: headerContentReveal(_controller.scene, now),
+              ),
             ),
-            background: RepaintBoundary(
+            background: (headerBottom) => RepaintBoundary(
               child: CustomPaint(
                 painter: FluidFieldPainter(
                   _controller.scene,
                   _controller.clock,
+                  topInset: headerBottom,
                 ),
               ),
             ),

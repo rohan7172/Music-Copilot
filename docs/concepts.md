@@ -218,6 +218,15 @@ ferroflow_music.html`) without porting its fragment shader.
   cap" to draw; the shape just naturally pinches to a point, the way a
   real drop of liquid running down an edge would thin out rather than
   stopping square
+- **The header bar is fluid too** (`topInset`, `headerFill`): the painter
+  fills a solid band across the top of the canvas and starts the field's
+  own rim below it, so the bar and the walls are one shape with one
+  gradient, not a bar sitting on top of a separate effect. During the
+  intro the band's height eases from 0 to full (`headerFill`) — the
+  liquid "pours" into the header — and the header's title and button
+  only fade in once it's mostly full (`headerContentReveal`), so the
+  fluid is what reveals them. Same pure `(scene, now)` style as the rest
+  of the file: no new state, just one more function of the intro time
 - **A small fillet at the top two corners** (`_topCornerRadius`, drawn
   via `quadraticBezierTo` the same way a rounded-rect corner is built):
   the only place the fluid's outer boundary still has to touch an
