@@ -255,8 +255,8 @@ detect more than loudness:
 
 ## The edge fluid field (`widgets/fluid_field.dart`)
 
-A liquid-style background hugging the top and side edges of the screen,
-approximating the look of a WebGL prototype (`Inpiration/
+A liquid/metaball-style background hugging the top and side edges of the
+screen, approximating the look of a WebGL prototype (`Inpiration/
 ferroflow_music.html`) without porting its fragment shader.
 
 - **Why not a real fragment shader**: the prototype renders via a
@@ -266,23 +266,39 @@ ferroflow_music.html`) without porting its fragment shader.
   shader into Skia's SkSL subset with no prior art in this codebase was
   judged more risk than it was worth for a visual that's explicitly meant
   to be tested and iterated on quickly
-- **One filled path, not a blurred "goo" blend** — the first version of
-  this painter drew many small blurred, additively-summed capsule shapes
-  (`MaskFilter.blur` + `BlendMode.plus`), then sharpened the merged alpha
-  with a contrast `ColorFilter.matrix`, chasing the prototype's metaball
-  look directly. In practice it failed silently: a Gaussian blur
-  conserves *total* alpha but spreads it over an area roughly
-  proportional to the blur radius squared, so a small or short shape's
-  *peak* intensity drops fast as blur radius grows — at idle, the spikes
-  were short enough that blurring then thresholding them left literally
-  nothing visible, and even during recording (longer spikes) the result
-  only read as faint, separate blobs, not a solid liquid body. The fix
-  was to stop reconstructing a shape's visibility from blurred alpha
-  math and just build the shape directly: one `Path` whose outer
-  boundary is the screen's own edge and whose inner boundary is a
-  smoothed, noise-driven wavy curve, filled solid. Visibility no longer
-  depends on tuning a blur radius against a contrast threshold — it's
-  just a filled polygon, so it's inherently "clearly visible"
+- **Two dead ends before landing on the field-math approach, both worth
+  knowing about since they're easy to reach for again**:
+  1. Many small blurred, additively-summed capsule shapes
+     (`MaskFilter.blur` + `BlendMode.plus`), sharpened back with a
+     contrast `ColorFilter.matrix` — chasing the prototype's metaball
+     look by *rendering trick* rather than by its actual math. Failed
+     silently: a Gaussian blur conserves *total* alpha but spreads it
+     over an area roughly proportional to the blur radius squared, so a
+     small or short shape's *peak* intensity drops fast as blur radius
+     grows. At idle the spikes were short enough that blurring then
+     thresholding them left literally nothing visible.
+  2. One filled `Path` (screen edge as the outer boundary, a
+     noise-driven wavy curve as the inner one) with a resting
+     `MaskFilter.blur` left on for softness. This fixed visibility
+     (a filled polygon is always visible, no threshold to tune) but
+     looked wrong in a different way: a uniform hazy band, not distinct
+     organic blobs — the blur was doing all the shape-defining work
+     instead of the field math, so there was nothing underneath to
+     actually look like liquid fingers.
+
+  The shipped version keeps dead-end 2's *rendering* (one filled path,
+  smoothed with `strokeMusicalLine`'s quadratic-bezier technique) but
+  replaces *where the shape comes from*: [`fieldLengthAt`] sums the same
+  `radius² / (distance² + 1)`-style falloff the prototype's shader sums
+  per pixel, just once per rim sample instead of once per pixel — twelve
+  Gaussian bumps (one per pitch-class position around the rim), each
+  with its own independently-drifting amplitude, summed and passed
+  through a saturating curve (`1 - exp(-sum * gain)`) so overlapping
+  bumps blend into a taller, wider merged lobe instead of just adding
+  past 1 and clipping flat. No blur anywhere — the organic, merging
+  character comes entirely from the field summation; the only smoothing
+  is the bezier interpolation between samples, for a crisp liquid edge
+  rather than a soft glow
 - **Arc-length, not angle, parameterization** for the rim the inner curve
   is measured from (`edgeAnchor`/`edgeInward`): the prototype places its
   12 spikes by angle around a full circle, which is fine when every
@@ -294,31 +310,31 @@ ferroflow_music.html`) without porting its fragment shader.
   produces a point below `size.height * (1 - fluidBottomReserve)` in the
   first place, rather than drawing a full field and cutting off the
   bottom after the fact (which would risk a visible seam at the cut)
-- **The inner boundary is smoothed the same way `strokeMusicalLine` is**:
-  many sampled points connected with a quadratic bezier through each
-  pair's midpoint, not straight segments — what keeps the fluid's edge
-  reading as a flowing curve instead of a faceted polyline
+- **The rim wraps, so distance must too**: `fieldLengthAt` measures each
+  bump's distance from a sample point as
+  `min((t - center).abs(), 1 - (t - center).abs())` — without the
+  second term, positions near `t=0` and `t=1` (which are actually right
+  next to each other, both near the bottom-of-left-edge/
+  bottom-of-right-edge seam) would see each other as maximally far
+  apart instead of adjacent, putting a visible seam where there
+  shouldn't be one
 - **Randomized, not audio-driven, while recording** — an explicit,
   named scope cut: this step is about proving the visual reads as
-  liquid, not about pitch accuracy. `recordingLength`/`idleLength` reuse
-  the same "two unrelated sines multiplied" noise trick as
-  `ribbonWobbleY` (`_ripple`, continuous in both space and time, so
-  neighboring rim samples stay close together and nothing needs extra
+  liquid, not about pitch accuracy. `_spikeAmplitude` reuses the same
+  "two unrelated sines multiplied" noise trick as `ribbonWobbleY`
+  (`_ripple`, continuous in both space and time, so neighboring rim
+  samples and frames stay close together and nothing needs extra
   smoothing to avoid jitter), rather than a literal `Random()` call or
-  real pitch detection — and both are clamped with a floor (0.5 while
-  recording, 0.22 at idle) so the band never pinches down to nothing at
-  any point around the rim. A later step can swap these two functions
-  for something reading `Chord.pitchClasses`/`startTime`/`endTime`
-  without touching anything else in the file
+  real pitch detection. A later step can swap this one function for
+  something reading `Chord.pitchClasses`/`startTime`/`endTime` without
+  touching the field-summation or rendering code at all
 - **Staggered entrance, reusing `Scene.introStart`**: rather than a new
   timestamp field, the fluid's grow-in reuses the same `introStart`/
   `introDuration` the mascot's wake-in and the line's `reveal` already
   use, so all three land in the same window. Each rim point's growth is
   offset by a small, position-based stagger so the band rises unevenly
-  around the rim (like liquid actually would), while the fill's blur
-  separately ramps from soft-and-diffuse to a small resting value over
-  the same window — two different "progress" readings of one timestamp,
-  not two fields
+  around the rim (like liquid actually would) instead of every point
+  snapping to life in lockstep
 
 ## Talking to the backend
 

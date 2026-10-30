@@ -17,15 +17,31 @@ const fluidBottomReserve = 0.18;
 /// How many points are sampled around the rim to build the fluid's wavy
 /// inner edge — high enough that the smoothed curve (see [FluidFieldPainter
 /// .paint]) reads as flowing, not faceted.
-const _rimSamples = 160;
+const _rimSamples = 180;
 
 /// How far inward the fluid can reach, as a fraction of the canvas's
 /// shorter side.
 const _maxLenFraction = 0.34;
 
-const _restBlurSigma = 3.0;
-const _startBlurSigma = 18.0;
-const _fillAlpha = 0.88;
+/// One "finger" per pitch-class position around the rim, same as the
+/// reference prototype's 12 anchors.
+const _spikeCount = 12;
+
+/// How wide each finger's bump is, as a fraction of the whole rim's
+/// arc-length (0..1) — narrow enough that neighboring fingers read as
+/// distinct pokes at rest, wide enough that they visibly merge once their
+/// amplitude grows (recording).
+const _spikeWidthT = 0.034;
+
+/// A small always-present floor so the rim never shows a literal gap
+/// between fingers, even at their quietest.
+const _ambientFloor = 0.05;
+
+/// How quickly the summed field saturates toward a full-strength fill —
+/// see [fieldLengthAt].
+const _saturationGain = 1.7;
+
+const _fillAlpha = 0.94;
 
 /// A point on the fluid's rim (left edge, top edge, right edge — never the
 /// reserved bottom strip) for arc-length position [t] (0..1), given the
@@ -56,28 +72,49 @@ Offset edgeInward(double t, Size size, double bottomReserve) {
   return const Offset(-1, 0);
 }
 
-/// Two unrelated sine frequencies multiplied, [x] as the spatial phase (the
-/// same role `f` plays in `ribbonWobbleY`) — the same "organic,
-/// never-quite-looping" trick already used throughout this app. Continuous
-/// in both [x] and [now], so neighboring rim samples stay close together
-/// (no faceting) and nothing needs extra smoothing to avoid jitter.
+/// Two unrelated sine frequencies multiplied — the same "organic,
+/// never-quite-looping" trick already used throughout this app
+/// (`ribbonWobbleY`). [x] plays the role `f` plays there: a spatial seed so
+/// each spike's amplitude drifts independently rather than in lockstep.
 double _ripple(double x, double now) =>
     0.5 + 0.5 * math.sin(now * 1.7 + x * 2.31) * math.sin(now * 0.73 + x * 1.13);
 
-/// 0..1 how far inward the fluid reaches at rim position [t] while
-/// recording — randomized, not audio-driven: note-wise accuracy is
-/// explicitly out of scope for this step (see docs/concepts.md), this is a
-/// depiction of "something is flowing," not a detector. Never drops below
-/// 0.5, so the band always reads as a solid, clearly visible body rather
-/// than pinching to nothing at some points around the rim.
-double recordingLength(double t, double now) =>
-    (0.5 + 0.35 * _ripple(t * 9.0, now * 1.0) + 0.15 * _ripple(t * 21.0, now * 2.4))
+/// 0..1 how strongly spike [k] (one of [_spikeCount], evenly spaced around
+/// the rim) is reaching out right now. Randomized, not audio-driven — an
+/// explicit, named scope cut: note-wise accuracy is out of scope for this
+/// step (see docs/concepts.md), this is a depiction of "something is
+/// flowing," not a detector.
+double _spikeAmplitude(int k, double now, Phase phase) {
+  if (phase == Phase.recording) {
+    return (0.55 +
+            0.35 * _ripple(k * 3.1, now * 0.8) +
+            0.15 * _ripple(k * 7.7 + 11, now * 2.1))
         .clamp(0.0, 1.0);
+  }
+  return (0.14 + 0.10 * _ripple(k * 3.1, now * 0.25)).clamp(0.0, 1.0);
+}
 
-/// 0..1 how far inward the fluid reaches at rest (idle, or fading out while
-/// analyzing) — a low, slow simmer, never below 0.22.
-double idleLength(double t, double now) =>
-    (0.22 + 0.10 * _ripple(t * 6.0, now * 0.3)).clamp(0.0, 1.0);
+/// 0..1 how far inward the fluid reaches at rim position [t] — the same
+/// `radius² / (distance² + 1)` falloff the reference prototype's fragment
+/// shader sums per spike (see `Inpiration/ferroflow_music.html`'s field
+/// function), just evaluated once per rim sample instead of once per pixel:
+/// `[_spikeCount]` Gaussian bumps, one per pitch-class position, each with
+/// its own independently-drifting amplitude, summed and passed through a
+/// saturating curve so overlapping bumps blend into a taller, wider merged
+/// lobe instead of just adding past 1 and clipping — the same "fingers
+/// merge when close" character metaballs have, without needing an actual
+/// 2D implicit-field threshold search.
+double fieldLengthAt(double t, double now, Phase phase) {
+  var sum = _ambientFloor;
+  for (var k = 0; k < _spikeCount; k++) {
+    final center = k / _spikeCount;
+    var dt = (t - center).abs();
+    dt = math.min(dt, 1 - dt); // the rim wraps around, so distance wraps too
+    final amp = _spikeAmplitude(k, now, phase);
+    sum += amp * math.exp(-(dt * dt) / (2 * _spikeWidthT * _spikeWidthT));
+  }
+  return (1 - math.exp(-sum * _saturationGain)).clamp(0.0, 1.0);
+}
 
 /// 1 while idle/recording, easing to 0 over the first 0.5s of analyzing (so
 /// the fluid recedes rather than cutting), 0 once settled — Step 2 fills
@@ -110,27 +147,23 @@ double _entranceGrowthAt(double now, double? introStart, double t) {
   return Curves.easeOutCubic.transform(local);
 }
 
-/// 0..1 overall (non-staggered) entrance progress — drives the blur ramp in
-/// [FluidFieldPainter.paint], separate from each point's own staggered
-/// growth.
-double _entranceProgress(double now, double? introStart) {
-  if (introStart == null) return 1.0;
-  return ((now - introStart) / introDuration).clamp(0.0, 1.0);
-}
-
 /// A liquid/metaball-style field hugging the top and side edges of the
 /// screen, leaving the bottom [fluidBottomReserve] clear for a future tab
-/// bar. Approximates the look of `Inpiration/ferroflow_music.html` as one
-/// continuous, solidly filled band — the screen's own edge as the outer
-/// boundary, a smoothed, noise-driven wavy curve as the inner boundary —
-/// rather than a blur-and-threshold blend of many small shapes: a first
-/// version tried that (blurred, additively-summed spike capsules sharpened
-/// back with a contrast filter), but small/short spikes lost so much mass
-/// to the blur that they vanished entirely, and even the larger
-/// recording-time spikes only read as faint, separate blobs rather than a
-/// solid, clearly visible liquid body. A single filled path has no such
-/// failure mode: its visibility never depends on tuning a blur radius
-/// against a contrast threshold.
+/// bar — approximating the look of `Inpiration/ferroflow_music.html`
+/// without porting its per-pixel fragment shader (this app has no shader
+/// infrastructure and runs on Flutter web only, see docs/concepts.md).
+///
+/// Earlier versions of this painter tried to get the metaball look from
+/// *rendering* tricks — first a blurred, additively-summed blend sharpened
+/// with a contrast filter (small shapes lost too much mass to the blur and
+/// vanished), then a single filled shape with a generic noise-driven wavy
+/// edge softened by a blur (visible, but read as one hazy band, not
+/// distinct organic fingers). This version instead gets the look from the
+/// same *field math* the prototype uses — [fieldLengthAt] sums a
+/// `radius²/(distance²+1)`-style falloff per pitch-class spike — and draws
+/// the result as one crisp filled path with no blur at all: the organic,
+/// merging-finger character comes from the field summation itself, not
+/// from softening a shape after the fact.
 ///
 /// Timestamp-driven off [clock], like every other painter in this app — no
 /// `AnimationController`. Reads only [Scene.phase]/[Scene.introStart]/
@@ -149,17 +182,11 @@ class FluidFieldPainter extends CustomPainter {
 
     final fluidBottom = size.height * (1 - fluidBottomReserve);
     final maxLen = math.min(size.width, size.height) * _maxLenFraction;
-    final entranceT = Curves.easeOut.transform(
-      _entranceProgress(now, scene.introStart),
-    );
-    final blurSigma = ui.lerpDouble(_startBlurSigma, _restBlurSigma, entranceT)!;
 
     Offset innerPoint(double t) {
       final anchor = edgeAnchor(t, size, fluidBottomReserve);
       final inward = edgeInward(t, size, fluidBottomReserve);
-      final fraction = scene.phase == Phase.recording
-          ? recordingLength(t, now)
-          : idleLength(t, now);
+      final fraction = fieldLengthAt(t, now, scene.phase);
       final growth = _entranceGrowthAt(now, scene.introStart, t);
       final length = maxLen * fraction * growth * visibility;
       return anchor + inward * length;
@@ -173,10 +200,12 @@ class FluidFieldPainter extends CustomPainter {
       ..lineTo(size.width, 0)
       ..lineTo(size.width, fluidBottom);
 
-    // Inner boundary: the wavy, noise-driven curve, traced back from t=1 to
-    // t=0 and smoothed with the same quadratic-bezier-through-midpoints
+    // Inner boundary: the field-driven curve, traced back from t=1 to t=0
+    // and smoothed with the same quadratic-bezier-through-midpoints
     // technique `strokeMusicalLine` uses, so it reads as a flowing curve
-    // rather than a faceted polyline.
+    // rather than a faceted polyline — smoothing comes from this
+    // interpolation and from the field's own Gaussian falloff, not from a
+    // blur pass over the finished shape.
     final inner = <Offset>[
       for (var i = _rimSamples; i >= 0; i--) innerPoint(i / _rimSamples),
     ];
@@ -198,7 +227,7 @@ class FluidFieldPainter extends CustomPainter {
         ],
       )
       ..style = PaintingStyle.fill
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, blurSigma);
+      ..isAntiAlias = true;
     canvas.drawPath(path, paint);
   }
 

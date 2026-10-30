@@ -1,6 +1,7 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:music_copilot_app/widgets/fluid_field.dart';
+import 'package:music_copilot_app/widgets/score_canvas.dart' show Phase;
 
 void main() {
   const size = Size(400, 800);
@@ -42,23 +43,35 @@ void main() {
     });
   });
 
-  group('recordingLength / idleLength', () {
-    test('always stay within 0..1 across a spread of inputs', () {
+  group('fieldLengthAt', () {
+    test('always stays within 0..1 across a spread of inputs', () {
       for (var t = 0.0; t <= 1.0; t += 0.05) {
         for (var now = 0.0; now < 20.0; now += 0.37) {
-          expect(recordingLength(t, now), inInclusiveRange(0.0, 1.0));
-          expect(idleLength(t, now), inInclusiveRange(0.0, 1.0));
+          expect(fieldLengthAt(t, now, Phase.recording), inInclusiveRange(0.0, 1.0));
+          expect(fieldLengthAt(t, now, Phase.idle), inInclusiveRange(0.0, 1.0));
         }
       }
     });
 
-    test('never pinches to near-zero width', () {
+    test('never drops to exactly zero, so the rim never shows a literal gap', () {
       for (var t = 0.0; t <= 1.0; t += 0.05) {
         for (var now = 0.0; now < 20.0; now += 0.37) {
-          expect(recordingLength(t, now), greaterThanOrEqualTo(0.5));
-          expect(idleLength(t, now), greaterThanOrEqualTo(0.22));
+          expect(fieldLengthAt(t, now, Phase.idle), greaterThan(0.0));
         }
       }
+    });
+
+    test('recording reaches noticeably farther than idle, on average', () {
+      var recordingSum = 0.0, idleSum = 0.0;
+      var samples = 0;
+      for (var t = 0.0; t <= 1.0; t += 0.02) {
+        for (var now = 0.0; now < 10.0; now += 0.31) {
+          recordingSum += fieldLengthAt(t, now, Phase.recording);
+          idleSum += fieldLengthAt(t, now, Phase.idle);
+          samples++;
+        }
+      }
+      expect(recordingSum / samples, greaterThan(idleSum / samples * 1.5));
     });
   });
 }
