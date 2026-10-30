@@ -38,6 +38,11 @@ class Scene {
   final List<double> live = [];
   double liveDuration = 0;
 
+  /// When the live input last crossed a loudness peak while recording —
+  /// an approximate "it's reacting to your rhythm" cue (not a real beat
+  /// grid; see docs/concepts.md). Drives the mascot's listening bob.
+  double? lastPeakAt;
+
   /// Precise envelope decoded from the finished recording.
   Waveform? waveform;
   double? morphStart;
@@ -285,6 +290,7 @@ class ScorePainter extends CustomPainter {
       case Phase.idle:
         _paintIdleLines(canvas, layout, now);
       case Phase.recording:
+        _paintRecordingWarmth(canvas, layout);
         _paintLiveLines(canvas, layout, now, 1);
       case Phase.analyzing:
         _paintRecorded(canvas, layout, now);
@@ -358,6 +364,22 @@ class ScorePainter extends CustomPainter {
         color.withValues(alpha: 0),
       ]);
     canvas.drawCircle(center, radius, paint);
+  }
+
+  /// The canvas warms slightly while recording — "the app is listening" —
+  /// fading in over the first ~0.6s rather than snapping on. Reuses
+  /// `LineColors.orange`, the same warm hue already in the line palette,
+  /// rather than inventing a second warm tone.
+  void _paintRecordingWarmth(Canvas canvas, SceneLayout l) {
+    final fadeIn = (scene.liveDuration / 0.6).clamp(0.0, 1.0);
+    if (fadeIn <= 0) return;
+    final center = Offset(l.size.width / 2, l.size.height / 2);
+    _paintGlow(
+      canvas,
+      center,
+      l.size.shortestSide * 0.9,
+      LineColors.orange.withValues(alpha: 0.08 * fadeIn),
+    );
   }
 
   // --- Musical lines ----------------------------------------------------------

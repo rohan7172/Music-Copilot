@@ -63,6 +63,19 @@ class _SessionScreenState extends State<SessionScreen>
   /// ever opened — never again after that (see `_loadFirstRunHint`).
   bool _showFirstRunHint = false;
 
+  /// Recording-relative time (seconds, same basis as [Scene.liveDuration])
+  /// of the last loud-enough sample — drives auto-stop-on-silence.
+  double _lastLoudAt = 0;
+
+  /// The previous amplitude sample, to detect a rising edge for the
+  /// mascot's peak bob (see `_startRecording`'s amplitude listener).
+  double _lastLevel = 0;
+
+  /// Guards against triggering auto-stop more than once while
+  /// [_stopRecording] is still completing (it's async and takes a moment
+  /// to move the phase off `recording`).
+  bool _autoStopping = false;
+
   Phase get _phase => _scene.phase;
 
   @override
@@ -71,6 +84,7 @@ class _SessionScreenState extends State<SessionScreen>
     _ticker = createTicker((elapsed) {
       if (_phase == Phase.recording) {
         _scene.liveDuration = _recordingTime.elapsedMilliseconds / 1000;
+        _checkAutoStop();
       }
       _trackPlayback();
       _clock.value = elapsed.inMicroseconds / 1e6;
@@ -93,6 +107,26 @@ class _SessionScreenState extends State<SessionScreen>
     if (prefs.getBool(key) ?? false) return;
     await prefs.setBool(key, true);
     if (mounted) setState(() => _showFirstRunHint = true);
+  }
+
+  static const _autoStopMinRecording = 10.0;
+  static const _autoStopSilence = 3.0;
+
+  /// Curved live-amplitude thresholds (see the `onAmplitudeChanged`
+  /// listener): below this reads as "silence" for auto-stop purposes;
+  /// above this (on a rising edge) triggers the mascot's peak bob.
+  static const _silenceThreshold = 0.12;
+  static const _peakThreshold = 0.5;
+
+  /// "3 s of silence auto-stops after a recording of 10 s or more" — a
+  /// recording that's gone quiet for a while finishes itself rather than
+  /// waiting on a tap, the same as tapping the record button would.
+  void _checkAutoStop() {
+    if (_autoStopping) return;
+    if (_scene.liveDuration < _autoStopMinRecording) return;
+    if (_scene.liveDuration - _lastLoudAt < _autoStopSilence) return;
+    _autoStopping = true;
+    unawaited(_stopRecording());
   }
 
   @override
@@ -131,6 +165,7 @@ class _SessionScreenState extends State<SessionScreen>
     _scene
       ..live.clear()
       ..liveDuration = 0
+      ..lastPeakAt = null
       ..waveform = null
       ..notes = const []
       ..chords = const []
@@ -141,6 +176,9 @@ class _SessionScreenState extends State<SessionScreen>
       ..showFaintNotes = false
       ..faintToggleStart = null;
     _explanation = null;
+    _lastLoudAt = 0;
+    _lastLevel = 0;
+    _autoStopping = false;
     _recordingTime
       ..reset()
       ..start();
@@ -149,7 +187,22 @@ class _SessionScreenState extends State<SessionScreen>
         .listen((amp) {
           // dBFS -> 0..1, curved so loud playing keeps some shape.
           final level = ((amp.current + 60) / 60).clamp(0.0, 1.0);
-          _scene.live.add(math.pow(level, 1.6).toDouble());
+          final curved = math.pow(level, 1.6).toDouble();
+          _scene.live.add(curved);
+
+          if (curved > _silenceThreshold) {
+            _lastLoudAt = _recordingTime.elapsedMilliseconds / 1000;
+          }
+          // A rising edge above a louder threshold, not fired again within
+          // the bob's own duration — an approximate "it's reacting to your
+          // rhythm," not a real beat grid (see docs/concepts.md).
+          final lastPeak = _scene.lastPeakAt;
+          if (curved > _peakThreshold &&
+              _lastLevel <= _peakThreshold &&
+              (lastPeak == null || _clock.value - lastPeak > 0.25)) {
+            _scene.lastPeakAt = _clock.value;
+          }
+          _lastLevel = curved;
         });
 
     setState(() {

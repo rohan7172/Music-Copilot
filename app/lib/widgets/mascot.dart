@@ -10,10 +10,11 @@ import 'score_canvas.dart' show Phase, Scene;
 // THESIS: a supporting character, not a dashboard centerpiece — its state
 // always traces back to a real phase, never a generic idle loop.
 // SIGNATURE INTERACTION: clock-timestamp-driven transitions (a one-time
-// "waking up" entrance, idle breathing + blink, listening whiskers that
-// pulse with the live input level, an analyzing head-tilt, a settle "pop"
-// when results arrive) — the same timestamp pattern ScorePainter already
-// uses, no new animation machinery.
+// "waking up" entrance, idle breathing + blink + an occasional glance
+// toward the record button, listening whiskers + a small bob on loud
+// peaks, an analyzing head-tilt, a settle "pop" when results arrive) —
+// the same timestamp pattern ScorePainter already uses, no new animation
+// machinery.
 // FORM: brief-pinned, Inpiration/MASCOT_SUGGESTION1.png — a rounded "pill"
 // head with two dot eyes (no mouth), resting on a semicircular stand below
 // it, like a handheld mic in its base.
@@ -97,6 +98,7 @@ class MascotPainter extends CustomPainter {
         : switch (expression) {
             MascotExpression.idle => 1.0 + 0.02 * math.sin(now * _idleBreathSpeed),
             MascotExpression.revealing => _popScale(now),
+            MascotExpression.listening => _peakBobScale(now),
             _ => 1.0,
           };
     canvas.scale(scale);
@@ -141,6 +143,19 @@ class MascotPainter extends CustomPainter {
     if (start == null) return 1.0;
     final t = ((now - start) / _popDuration).clamp(0.0, 1.0);
     return 1.0 + 0.12 * (1 - Curves.easeOutBack.transform(t));
+  }
+
+  static const _peakBobDuration = 0.3;
+
+  /// A small bounce the moment [Scene.lastPeakAt] fires — the mascot
+  /// reacting to a loud moment while listening. An approximate "it's
+  /// grooving with you," not locked to a real beat grid.
+  double _peakBobScale(double now) {
+    final peak = scene.lastPeakAt;
+    if (peak == null) return 1.0;
+    final t = ((now - peak) / _peakBobDuration).clamp(0.0, 1.0);
+    if (t >= 1.0) return 1.0;
+    return 1.0 + 0.08 * (1 - Curves.easeOut.transform(t));
   }
 
   void _paintEyes(Canvas canvas, double bodyH, double now, MascotExpression expression) {

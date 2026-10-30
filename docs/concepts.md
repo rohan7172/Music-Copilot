@@ -31,6 +31,25 @@ Needed to read `main.dart` and `screens/session_screen.dart`.
   canvas with primitives (paths, arcs, text) instead of composing widgets;
   how the waveform, note arcs, and chord bands are actually rendered
 
+## Listening feedback from amplitude alone (`session_screen.dart`'s amplitude listener)
+
+The "Listen" beat wants the app to feel alive while recording, but today
+the app only has loudness in real time — real pitch/chord/key detection
+still happens after you stop (Basic Pitch isn't a streaming model here).
+Two small, honest techniques get real-time *feel* without pretending to
+detect more than loudness:
+
+- **Peak (not beat) detection**: a rising edge above a loudness threshold
+  (curved amplitude crossing up through ~0.5, not re-firing within its own
+  bob duration) is treated as "a hit" and drives the mascot's bob —
+  approximate, reactive to loudness, explicitly *not* a real beat grid
+  (tempo/downbeats, the doc's own "Phase 1: Melody foundation" work).
+  Cheap and immediate; shouldn't be confused with the real thing later.
+- **Silence as a signal**: tracking "seconds since the last loud sample"
+  (`_lastLoudAt`) is enough to auto-stop a recording after it's gone
+  quiet for a while — no pitch detection needed, just the same amplitude
+  stream already being read for the live line.
+
 ## Local persistence (`shared_preferences`, `session_screen.dart`)
 
 - The app's first piece of state that survives a restart: a single
