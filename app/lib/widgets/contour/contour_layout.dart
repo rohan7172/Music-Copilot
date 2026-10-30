@@ -40,6 +40,16 @@ class ContourLayout {
   static const pillHeight = 22.0;
   static const minPillWidth = 10.0;
 
+  /// When notes are sparse enough to each carry their name, pills are at
+  /// least this wide so the name fits.
+  static const labelPillWidth = 34.0;
+
+  /// The narrowest pill in this roll: wide enough for a name when there's
+  /// room for every note to have one, otherwise just wide enough to tap.
+  double get pillFloor => notes.length * (labelPillWidth + 4) <= width
+      ? labelPillWidth
+      : minPillWidth;
+
   double get left => labelGutter;
   double get right => size.width - rightPad;
   double get width => math.max(1, right - left);
@@ -49,8 +59,7 @@ class ContourLayout {
   double xForTime(double t) =>
       left + (duration <= 0 ? 0 : (t / duration).clamp(0.0, 1.0)) * width;
 
-  double timeForX(double x) =>
-      ((x - left) / width).clamp(0.0, 1.0) * duration;
+  double timeForX(double x) => ((x - left) / width).clamp(0.0, 1.0) * duration;
 
   double yForMidi(int midi) {
     final lo = fitted.lo;
@@ -65,9 +74,14 @@ class ContourLayout {
   Rect pill(int i) {
     final n = notes[i];
     final x0 = xForTime(n.startTime);
-    final x1 = math.max(xForTime(n.endTime), x0 + minPillWidth);
+    final x1 = math.max(xForTime(n.endTime), x0 + pillFloor);
     final y = yForMidi(n.midiPitch);
-    return Rect.fromLTRB(x0, y - pillHeight / 2, math.min(x1, right), y + pillHeight / 2);
+    return Rect.fromLTRB(
+      x0,
+      y - pillHeight / 2,
+      math.min(x1, right),
+      y + pillHeight / 2,
+    );
   }
 
   /// Up to five evenly spaced pitches to rule and label, spanning the

@@ -86,8 +86,11 @@ class _StreamPainter extends CustomPainter {
       final age = 1 - i / math.max(1, bars.length - 1);
       final h = (4 + bars[i] * (size.height - 8)) * fade + 4 * (1 - fade);
       final x = i * (_barWidth + _gap) + _barWidth / 2;
-      final color = Color.lerp(Palette.primary, Palette.fluid, age * 0.8)!
-          .withValues(alpha: 0.35 + 0.65 * (1 - age * 0.6));
+      final color = Color.lerp(
+        Palette.primary,
+        Palette.fluid,
+        age * 0.8,
+      )!.withValues(alpha: 0.35 + 0.65 * (1 - age * 0.6));
       canvas.drawLine(
         Offset(x, midY - h / 2),
         Offset(x, midY + h / 2),
@@ -105,9 +108,14 @@ class _StreamPainter extends CustomPainter {
       dotR + 6 + level * 6,
       Paint()..color = Palette.noteSoft.withValues(alpha: 0.25),
     );
-    canvas.drawCircle(Offset(dotX, midY), dotR, Paint()..color = Palette.primary);
+    canvas.drawCircle(
+      Offset(dotX, midY),
+      dotR,
+      Paint()..color = Palette.primary,
+    );
   }
 
   @override
-  bool shouldRepaint(_StreamPainter old) => old.fade != fade || old.scene != scene;
+  bool shouldRepaint(_StreamPainter old) =>
+      old.fade != fade || old.scene != scene;
 }

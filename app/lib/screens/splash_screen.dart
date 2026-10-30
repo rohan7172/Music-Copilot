@@ -99,7 +99,9 @@ class _SplashScreenState extends State<SplashScreen>
                   : t < _wakeAt
                   ? MascotMood.singing
                   : MascotMood.idle;
-              final appear = Curves.easeOutCubic.transform((t / 0.35).clamp(0.0, 1.0));
+              final appear = Curves.easeOutCubic.transform(
+                (t / 0.35).clamp(0.0, 1.0),
+              );
               return Opacity(
                 opacity: appear,
                 child: Transform.scale(

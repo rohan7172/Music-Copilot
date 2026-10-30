@@ -13,269 +13,143 @@ Needed to read any file in `app/lib/`.
   time (like network calls), used constantly in `api_service.dart`
 - Null safety (`?`, `!`) — Dart's type system tracks what can be null
 
+
 ## Flutter app structure
 
-Needed to read `main.dart` and `screens/session_screen.dart`.
+Needed to read `main.dart`, `screens/session_screen.dart` and
+`session/session_controller.dart`.
 
 - Widgets — everything in a Flutter UI is a widget; `StatelessWidget` vs
   `StatefulWidget` (state = data that can change and redraw the UI)
 - The widget tree and `build()` method — how widgets nest to form a screen
-- `setState()` — how a `StatefulWidget` tells Flutter "redraw me, something
-  changed" (e.g. recording started, notes came back)
 - `pubspec.yaml` and packages (pub.dev) — Flutter's equivalent of
   `package.json`/npm, declares dependencies like `record` and `http`
-- `Ticker`/`AnimationController` — Flutter's per-frame clock, used in
-  `session_screen.dart` to drive the waveform/note animations and track
-  playback position every frame
-- `CustomPainter` (`widgets/score_canvas.dart`) — drawing directly onto a
-  canvas with primitives (paths, arcs, text) instead of composing widgets;
-  how the waveform, note arcs, and chord bands are actually rendered
+- `Ticker` — Flutter's per-frame clock. `SessionController` owns one and
+  publishes "seconds since start" on a `ValueNotifier<double>` (`clock`);
+  every animation in the app (mascot, fluid, contour, stream) is a pure
+  function of that number rather than having its own animation controller
+- `CustomPainter` — drawing directly onto a canvas with primitives (paths,
+  arcs, text) instead of composing widgets; how the mascot, the edge
+  fluid, the vocal contour and the acoustic stream are rendered.
+  `super(repaint: clock)` makes a painter redraw every frame without
+  rebuilding any widgets
 
-## Listening feedback from amplitude alone (`session_screen.dart`'s amplitude listener)
+## Separating state from screens (`session/session_controller.dart`)
 
-The "Listen" beat wants the app to feel alive while recording, but today
-the app only has loudness in real time — real pitch/chord/key detection
+The old app kept everything — microphone, backend call, playback, drawing
+— in one 1,000-line `StatefulWidget`. The Stitch overhaul split that:
+
+- `ChangeNotifier` — a plain Dart object that holds state and calls
+  `notifyListeners()` when it changes. `SessionController` is one: it owns
+  the recorder, player and API client, and exposes the phase, the
+  results, `isPlaying`, `loop` and so on. It has no widgets in it, so the
+  same logic could sit behind a completely different UI
+- `ListenableBuilder` / `ValueListenableBuilder` — the widget side of the
+  same idea: "rebuild this part of the tree when that object changes."
+  `SessionScreen` rebuilds on the controller (discrete changes: phase,
+  results, play/pause); small pieces like the recording timer or the
+  "sounding now" label rebuild on `clock` (every frame) — so a per-frame
+  change never rebuilds the whole screen
+- One view per phase (`screens/views/`): `IdleView`, `ListeningView`
+  (recording *and* analyzing — sharing one view is what lets the hand-off
+  animate in place), `ResultsView`, `ErrorView`. `SessionScreen` just
+  picks one and cross-fades with `AnimatedSwitcher`, keyed by a string so
+  Flutter knows when the view really changed
+- A test seam: `SessionScreen(createController: ...)` lets a test build the
+  screen around a fake controller with hand-made results, which is how
+  every screen state can be rendered and checked without a microphone,
+  backend, or file picker
+
+## A design system in code (`theme.dart`)
+
+- Design tokens — colors, type sizes, radii and spacing defined once as
+  named constants (`Palette.primary`, `TextStyles.headlineLg`,
+  `Shape.panel`, `Space.md`) and referenced everywhere, never as raw
+  values. They're copied from the Google Stitch project's Tailwind config,
+  so "the design" and "the code" share one vocabulary
+- Bundled fonts — the four Plus Jakarta Sans `.ttf` weights live in
+  `app/assets/fonts/` and are declared under `fonts:` in `pubspec.yaml`
+  (one `family`, one `asset` per `weight`). Bundling instead of fetching at
+  runtime means text looks identical on every platform and offline
+- Letter spacing units — CSS/Tailwind spacing is in `em` (relative to the
+  font size); Flutter's `letterSpacing` is in logical pixels, so `0.06em`
+  at 11px becomes `0.66`
+- Tabular figures (`FontFeature.tabularFigures()`) — makes every digit the
+  same width so a running clock (`00:16`) doesn't wobble sideways as it
+  counts
+- Shared components (`widgets/ui.dart`): `PillButton`, `RoundAction`,
+  `InfoChip`, `SectionLabel`, all built on one `Pressable` that gives every
+  control the same press-to-shrink feedback (`AnimatedScale`), a pointer
+  cursor and keyboard activation (`FocusableActionDetector`), and a
+  screen-reader label (`Semantics`)
+
+## Listening feedback from amplitude alone (`SessionController._onAmplitude`)
+
+The app only has loudness in real time — real pitch/chord/key detection
 still happens after you stop (Basic Pitch isn't a streaming model here).
 Two small, honest techniques get real-time *feel* without pretending to
 detect more than loudness:
 
 - **Peak (not beat) detection**: a rising edge above a loudness threshold
-  (curved amplitude crossing up through ~0.5, not re-firing within its own
-  bob duration) is treated as "a hit" and drives the mascot's bob —
-  approximate, reactive to loudness, explicitly *not* a real beat grid
-  (tempo/downbeats, the doc's own "Phase 1: Melody foundation" work).
-  Cheap and immediate; shouldn't be confused with the real thing later.
+  (curved amplitude crossing up through ~0.5, not re-firing within a
+  quarter second) is treated as "a hit" (`Scene.lastPeakAt`) — approximate,
+  reactive to loudness, explicitly *not* a real beat grid
 - **Silence as a signal**: tracking "seconds since the last loud sample"
-  (`_lastLoudAt`) is enough to auto-stop a recording after it's gone
-  quiet for a while — no pitch detection needed, just the same amplitude
-  stream already being read for the live line.
+  (`_lastLoudAt`) is enough to auto-stop a recording after it's gone quiet
+  for 3 s (once it's at least 10 s long) — and the listening screen's hint
+  line only mentions that once it's actually true
+- The acoustic stream (`widgets/acoustic_stream.dart`) draws those same
+  40 ms loudness samples as bars, averaged in groups of three — a
+  depiction of what the mic actually heard, not a decorative equalizer
 
-## Local persistence (`shared_preferences`, `session_screen.dart`)
+## The mascot (`widgets/mascot/`)
 
-- The app's first piece of state that survives a restart: a single
-  boolean flag (`hasSeenFirstRunHint`) remembering whether the
-  first-run hint line has already been shown, so it appears exactly
-  once, ever, rather than every time the app opens
-- `shared_preferences` — Flutter's standard package for small local
-  key-value data (a handful of bools/strings/numbers), backed by each
-  platform's own simple storage (e.g. `UserDefaults` on iOS,
-  `SharedPreferences` on Android, `localStorage` on web). It's `async`
-  (`SharedPreferences.getInstance()`) because reading platform storage
-  isn't instant, unlike reading an in-memory field
-- This is deliberately not the same tool a "save my recordings"
-  feature would reach for later (that needs real files/a database, not
-  a few flags) — matching the tool to the size of the problem
-
-## Color as music theory (`harmonic_color.dart`)
-
-- Tonic/subdominant/dominant function — the three broad "roles" a chord
-  can play relative to the key: tonic (I, vi, iii) is rest/home,
-  dominant (V, vii°) is tension pulling back toward tonic, subdominant
-  (IV, ii) sits in between, moving away from home. This is the same
-  grouping behind `explain.py`'s per-degree descriptions
-  (`_BLURBS`) — the color system just gives it a visual form instead of
-  a sentence
-- `Color.lerp` — Flutter's way of blending linearly between two colors;
-  used here to turn a 0..1 "tension" value per scale degree into a
-  smooth lavender-to-coral gradient rather than hard-coded buckets
-- Why this duplicates `explain.py`'s roman-numeral regex in Dart rather
-  than asking the backend for a color or a degree number: the frontend
-  already has the `roman` string on every chord, so parsing it client-
-  side avoids a network round-trip or a backend response change for a
-  purely cosmetic concern — a reasonable case for a small, deliberate
-  duplication instead of a shared source of truth
-
-## Ambient atmosphere (`key_color.dart`, `ScorePainter._paintAmbient`)
-
-- Two different jobs for color, kept deliberately separate: `KeyColor`
-  gives the *key* a fixed identity (G major always looks the same hue,
-  with no theory attached), while `HarmonicColor` gives each *chord* a
-  reading of its function within that key. One says "what key am I
-  in," the other says "what is this chord doing right now."
-- `HSLColor` — unlike `Color` (which is red/green/blue), `HSLColor` is
-  hue/saturation/lightness: picking hues evenly spaced by degrees
-  (`pitchClass * 30°` for 12 keys) is far more natural in HSL than in
-  RGB, where "evenly spaced" colors aren't obvious from the numbers
-- `ui.Gradient.radial` — like the `ui.Gradient.linear` already used for
-  the analyzing-sweep stroke, but centered and radiating outward; the
-  way to paint a soft "glow" that fades to nothing rather than a hard
-  circle
-- Same hue, different saturation/lightness (`KeyColor.forTonicVivid`) —
-  a cheap way to get a "bolder version of this same color" for a
-  foreground element (the waveform) without it reading as an unrelated
-  color from the soft ambient wash behind it
-- Alpha alone isn't enough for contrast: a color at 10% opacity over a
-  light background reads as a tinted gray no matter how saturated the
-  color itself is — getting a foreground element to actually "pop"
-  needs the opacity to climb too, not just the hue to change
-- `Curves.easeOutBack` — an easing curve that overshoots past its target
-  before settling back, the standard way to get a "pop in" feel (used
-  for the chord tabs' reveal and, combined with a second timestamp-driven
-  scale bump, their tap feedback)
-- A boolean toggle that *reads* as instant but *animates* as a fade:
-  `Scene.faintToggleStart` records only a timestamp when "show faint
-  notes" flips; the painter derives a smooth 0..1 progress from
-  `now - faintToggleStart` every frame, the same pattern used
-  everywhere else in this file for reveal animations (`settleStart`,
-  `analyzeStart`, `morphStart`) — a toggle doesn't need its own
-  animation controller, just one more timestamp
-- Summed sine waves at different, unrelated frequencies as a cheap way
-  to fake "organic" motion — a single `sin(t)` repeats in an obviously
-  mechanical loop, but two or three summed together with frequencies
-  that don't share a common period (so they don't realign for a very
-  long time) reads as meandering rather than looping. The same idea
-  already powered the record button's breathing and the hint dots'
-  pulse, just with more terms layered in
-- A `sin(π·x)` "bump" (zero at x=0, peak at x=0.5, zero again at x=1)
-  as a reusable shape for anything that should rise and fall once
-  rather than stay on — already used for the note-landing "pop," reused
-  here for the chord-reveal pulses
-
-## Picking an existing file (`audio/pick_audio_file.dart`)
-
-- `file_picker` — the system file-picker UI, restricted here to
-  `wav`/`mp3`/`m4a`; gives a real file path on native platforms, but only
-  raw bytes on web (browsers don't expose a filesystem path)
-- Data URIs (`Uri.dataFromBytes`) — a way to embed a file's bytes directly
-  inside a URL (`data:audio/mpeg;base64,...`); used so the web build can
-  hand `just_audio` something to play when there's no file path or blob
-  URL available, unlike a live recording's blob URL
-- `ffmpeg` as a backend system dependency — `librosa` (which Basic Pitch
-  uses to load audio) decodes WAV/FLAC/OGG natively via `soundfile`, but
-  falls back to `ffmpeg` for compressed formats like MP3/M4A; nothing to
-  do with Python packages, it has to be installed separately on the host
-- A synthetic "waveform" from note data (`Waveform.fromNoteActivity`) —
-  when the real audio can't be decoded into samples client-side, the
-  canvas shows note density/confidence over time instead; not the actual
-  sound, but a visualization that still reflects what was heard
-
-## Audio recording and playback on-device
-
-- Microphone permissions (iOS `Info.plist` entries, runtime permission
-  prompts)
-- What the `record` package is doing: capturing raw audio and encoding it
-  to a file (e.g. `.wav`/`.m4a`)
-- `just_audio` — playing back a recording or a slice of it; seeking to a
-  position, tracking playback state
-- `audio_session` — why recording and playback need different "modes" on
-  iOS (recording can otherwise route playback to the earpiece speaker)
-- Why `session_screen.dart` has several small playback methods
-  (`_playRange`, `_togglePlayAll`, `_playFromHere`) instead of one
-  generalized one: they differ in exactly one thing — where `_playEnd`
-  stops — and keeping that fixed point explicit per-method is easier to
-  read and safer to change than threading extra parameters through a
-  single do-everything function
-
-## The mascot (`widgets/mascot.dart`)
-
-- Reusing the `CustomPainter` + pure-state-mapping pattern for a second,
-  unrelated character: `expressionForPhase` is a plain `Phase ->
-  MascotExpression` function (no `Canvas`, no animation state), unit
-  tested directly (`test/mascot_test.dart`) — the same separation of
-  "what state are we in" from "how do we draw it" used throughout
-  `score_canvas.dart`, and the same reasoning behind keeping
-  `harmonic_color.dart`/`key_color.dart` as their own files
-- The "stadium" shape trick: `RRect.fromRectAndRadius` with a corner
-  radius of half the *shorter* side turns a plain rounded rectangle into
-  a full capsule/pill — no separate "pill" drawing code needed, just the
-  right radius relative to the box (used for both the mascot's body and
-  the `_QuietButton` chips, via the shared `Shape.pill` constant)
-- `canvas.drawArc` — the mascot's stand (the base a handheld mic rests
-  in) is just the bottom half of a circle: `startAngle: 0` (3 o'clock),
-  `sweepAngle: pi`, which in Flutter's clockwise-from-positive-x
-  convention traces exactly the bottom semicircle, no path-building
-  needed
+- Drawn to the reference sheet's measurements: the painter works in a
+  fixed 220 × 200 "design box" whose numbers (body 84 × 142, eyes 18.5
+  off-center, a three-stroke grille, a 52-radius stand arc) were measured
+  off `Inpiration/Mascot States and Emotions Sheet.png`; `canvas.scale`
+  maps that box onto whatever size the widget is. Change the size, the
+  proportions can't drift
+- A pure mood function (`mascot_mood.dart`): `moodFor(phase, now,
+  hasError, lastTapAt, settleStart, playing, keyConfidence, ...)` returns
+  one of the sheet's states. No canvas, no animation — so it's unit tested
+  directly (`test/mascot_mood_test.dart`) and can only ever show a mood
+  something real caused (an error → surprised, a clear key → excited, 30 s
+  untouched → sleepy)
+- Timestamps instead of animation controllers: each mood's motion
+  (breathing, bouncing, swaying, notes drifting) is computed from
+  `now` and `since` (seconds since the mood started). Switching mood swaps
+  the eyes behind a 0.18 s blink, so changes feel organic rather than
+  snapping
+- `canvas.save()` / `translate` / `rotate` / `scale` / `restore()` —
+  tilting and squashing the body around its *base* (so it leans in its
+  cradle) by moving the origin there first, transforming, then moving
+  back
+- `canvas.drawArc` — the stand is an arc of a circle, a little more than
+  a half circle so the tips curl up beside the body
+- Reduce Motion: `MediaQuery.disableAnimations` makes the painter hold each
+  mood's resting pose
 - Programmatic audio synthesis (`scripts/generate_splash_chime.py`): a
-  sine wave sampled at 44.1kHz, scaled to 16-bit PCM integers, and
-  wrapped in a WAV header (Python's `wave` module) — enough to generate
-  a short, deterministic sound asset from code instead of sourcing an
-  audio file; a linear fade in/out on each note avoids the audible
-  "click" a hard-edged tone would otherwise have
-- `StadiumBorder` + `Material`/`InkWell` — Flutter's way to get a
-  custom-shaped tappable surface (here, a pill) that still shows the
-  platform's ink-ripple feedback on tap, rather than a plain
-  `GestureDetector` with no visual response
+  sine wave sampled at 44.1kHz, scaled to 16-bit PCM integers, and wrapped
+  in a WAV header — the splash's three-note chime, which the mascot now
+  "sings" along to (sleepy → singing → eyes open)
 
-## The splash screen, the wake-up intro, and musical lines
+## The vocal contour (`widgets/contour/`)
 
-- The lines are a *depiction*, not a trace. Two different depictions now
-  live side by side in `score_canvas.dart`, used for different moments:
-  `strokeMusicalLine` (1-3 ribbon-wobble strands, used for the idle line
-  and the settled/post-analysis lines) and `strokeGaussianWave` (one
-  soft, Gaussian-bump line, used for the recording-time line and shared
-  with the splash screen — see below). Neither tries to represent
-  `scene.live`'s history across the growing span the way an early
-  version did (loud earlier, quiet now, visible left to right) — that
-  still looked like a miniature waveform. The settled lines (after
-  analysis) are the one place that *does* map real amplitude across the
-  clip's actual duration, since at that point there's a real finished
-  recording to represent, not just a live level
-- `strokeMusicalLine`, a top-level function in `score_canvas.dart` rather
-  than a method — deliberately, so it's usable outside `ScorePainter`
-  too: 1-3 overlapping strands, each a handful of sampled points joined
-  with a light quadratic smoothing (`Offset.lerp` through each pair's
-  midpoint) rather than straight segments — the smoothing is what keeps
-  a strand reading as a flowing curve instead of a faceted polyline,
-  especially once real, somewhat noisy audio data is driving its
-  amplitude. Summed sines per strand, each at a different, unrelated
-  frequency and phase (the same "organic, never-quite-looping" trick
-  already used for the ambient drift), are what make 3 strands read as
-  independent flowing lines rather than one line traced three times
-- `smoothedAmplitude`: averaging a handful of nearby envelope samples
-  instead of reading one raw point. Live microphone amplitude arrives in
-  coarse, un-smoothed 40ms chunks (see `_startRecording`'s
-  `onAmplitudeChanged` listener) — sampling it directly made the line
-  visibly jittery; a small moving-average window fixes that without
-  needing to change how the amplitude itself is captured
-- A fixed `LineColors` palette (`theme.dart`) rather than coloring the
-  lines by detected harmony: an earlier version of this tried tying the
-  color to `HarmonicColor`/the chord timeline, genuinely data-driven,
-  but it was reverted in favor of matching the reference board's fixed
-  purple/green/orange directly — a reminder that "more meaningfully
-  data-driven" isn't automatically "better" if it drifts from the
-  agreed visual reference
-- **`strokeGaussianWave`, shared between the splash screen and the
-  recording-time line** — the splash's line was built first, as its own
-  bespoke inline code in `_SplashLinePainter`, and was genuinely the
-  better-looking of the two techniques; the recording-time line (then 3
-  `strokeMusicalLine` ribbon strands) was later rebuilt to use the
-  splash's actual technique instead of a separately-evolved one that
-  happened to look similar. The renderer (sum a list of Gaussian bumps —
-  `rise * exp(-(dist²)/(2·sigma²))` per bump, evaluated at each sampled
-  x, then quadratic-bezier-smoothed the same way `strokeMusicalLine`
-  is) now lives once, in `score_canvas.dart`; each caller only supplies
-  *where the bumps are and how tall*:
-  - the splash screen's 3 bumps are onset-triggered — anchored at fixed
-    x positions, each rising and falling once (`sin(pi · q)`) in time
-    with one of the 3 notes in `assets/sounds/chime.wav`
-  - the recording-time line's 2-3 bumps are continuous instead — their
-    x-position drifts slowly (the same "two unrelated sines" trick used
-    everywhere else in this app) and their height is scaled directly by
-    `liveVolume` (`Scene.live`'s trailing average, the same "how loud
-    right now" signal the edge fluid field's recording pulse already
-    uses) — loud input reads as pronounced, organically-drifting crests
-    and troughs; a quiet room reads as a nearly flat line. Still not
-    trying to trace the actual waveform shape, same as every other
-    "depiction" in this file — only the *height* is data-driven
-  - `reveal` (0..1, clips to a growing prefix from `x0`) is the one
-    parameter both call sites actually use the same way: the splash
-    plays it forward then backward (`Curves.easeOutCubic` then
-    `easeInCubic`, the literal reverse of growing in) so the screen is
-    blank again right before the cut to the home screen; the
-    recording-time line doesn't need it at all (its own `x1` already
-    grows as more gets recorded), so it just leaves `reveal` at its
-    default `1.0`
-- The home screen's *returning* line
-  (`ScorePainter._introReveal`, driven by `Scene.introStart`) is a
-  separate thing from the splash's line — it's `strokeMusicalLine`'s own
-  `reveal` parameter, not `strokeGaussianWave`'s, even though both
-  parameters mean the same "clip to a growing prefix" thing and both
-  ultimately trace back to the splash screen's original grow-in idea
-- `Scene.introStart` — one more timestamp in the same family as
-  `settleStart`/`analyzeStart`, set once in `SessionScreen.initState`
-  and read as `now - introStart` wherever the one-time "waking up"
-  sequence needs to animate and then stop (the mascot's grow-and-blink
-  in `mascot.dart`, then the line's `reveal` picking up right after)
+- Layout as a pure, tested class (`ContourLayout`): time → x, MIDI pitch
+  → y, note → pill rectangle, tap point → note. The painter and the tap
+  handler both use it, so what you see and what you can tap can't disagree
+- Fitting the pitch range to the notes (`note_range.dart`'s
+  `fitPitchRange`) rather than the raw min/max, so one stray detection
+  doesn't squash every other note into a thin band
+- Density-aware labels: pills are widened to fit their note name only when
+  every note can have one without overlapping (`pillFloor`); in a dense
+  take the pills stay narrow and only the sounding note is labelled
+- `Path.computeMetrics()` / `extractPath` — how the dashed melody thread
+  is drawn: walk along the curve's length and draw every other short
+  stretch
+- `Curves.easeOutBack` — overshoots its target before settling; the notes
+  "pop" into place one after another when results land
 
 ## The edge fluid field (`widgets/fluid_field.dart`)
 
@@ -311,7 +185,7 @@ ferroflow_music.html`) without porting its fragment shader.
      actually look like liquid fingers.
 
   The shipped version keeps dead-end 2's *rendering* (one filled path,
-  smoothed with `strokeMusicalLine`'s quadratic-bezier technique) but
+  smoothed by a quadratic bezier through each pair of sample midpoints) but
   replaces *where the shape comes from*: [`fieldLengthAt`] sums the same
   `radius² / (distance² + 1)`-style falloff the prototype's shader sums
   per pixel, just once per rim sample instead of once per pixel — twelve
@@ -371,10 +245,9 @@ ferroflow_music.html`) without porting its fragment shader.
   continuous organic wave (the same "two unrelated sines multiplied"
   shape as `_idleAmplitude`, blended from two phase-shifted terms)
   directly by `liveVolume` — `Scene.live`'s own trailing average, the
-  exact "how loud right now" signal the recording-time musical lines
-  already swell with (`liveVolume` was promoted from a `ScorePainter`-
-  private method to a shared top-level function in this file so both
-  callers read the same number the same way). Held loud input keeps
+  exact "how loud right now" signal the acoustic stream's "now" dot
+  reads too (`liveVolume`, a shared top-level function in
+  `session/scene.dart`, so both read the same number the same way). Held loud input keeps
   pulsating the whole time it's held and scales with its own loudness;
   quieter input pulses less; true silence (`liveVolume` at or near 0)
   locks every spike to an exact, motionless floor — not asymptotically
@@ -385,9 +258,8 @@ ferroflow_music.html`) without porting its fragment shader.
   now layered on a magnitude that's honestly driven by the audio rather
   than driving the whole effect by itself
 - **Staggered entrance, reusing `Scene.introStart`**: rather than a new
-  timestamp field, the fluid's grow-in reuses the same `introStart`/
-  `introDuration` the mascot's wake-in and the line's `reveal` already
-  use, so all three land in the same window. Each rim point's growth is
+  timestamp field, the fluid's grow-in reuses `Scene.introStart`/
+  `introDuration`, set when the session screen first appears. Each rim point's growth is
   offset by a small, position-based stagger so the band rises unevenly
   around the rim (like liquid actually would) instead of every point
   snapping to life in lockstep
@@ -423,9 +295,9 @@ of the app rather than something that only shows up while recording):
   a second, unrelated "fade it out" mechanism just for phase changes
 - **The settle easing rides on timing this codebase already has**:
   `reachScale` eases from full reach down to its smaller settled value
-  over 0.6s from `Scene.analyzeStart`. `_stopRecording` already holds
-  `Phase.analyzing` for at least ~1.6s (`minListen`) and `_replay` for
-  1.4s before settling — both comfortably longer than that 0.6s — so by
+  over 0.6s from `Scene.analyzeStart`. `SessionController` already holds
+  `Phase.analyzing` for at least ~1.6s (`_minAnalyzeSeconds`) before
+  settling — both comfortably longer than that 0.6s — so by
   the time `Phase.settled` actually begins, the reach has already
   finished easing down with no special-casing needed for the hand-off
 - **Pitch class *is* the rim position**: `_playbackAmplitude` doesn't
@@ -434,11 +306,9 @@ of the app rather than something that only shows up while recording):
   so pitch class `k` (0=C..11=B) just *is* spike index `k`, the same way
   the reference prototype maps pitch classes onto clock positions
   (`Inpiration/ferroflow_music.html`'s `slotOf`)
-- **Reusing the "is this sounding" convention `ScorePainter` already
-  has**, rather than inventing a second one: `scene.playingAll &&
+- **One "is this sounding" convention**: `scene.playingAll &&
   playhead != null && playhead >= note.startTime && playhead <=
-  note.endTime` is copied verbatim from `_paintNotes`/`_paintChords`.
-  Looping every note and taking the *max* envelope per pitch class means
+  note.endTime`, the same test the contour uses to light a pill. Looping every note and taking the *max* envelope per pitch class means
   several simultaneously-sounding notes (a chord) each light up their
   own spike automatically — no separate chord-aware code path needed
 
@@ -449,8 +319,7 @@ version's pulses read as too big and too mechanically on/off):
   purpose**: the first version's envelope just stopped being considered
   the instant `playhead > note.endTime` — a real cutoff, not a fade.
   `_noteEnvelope` now keeps easing down for `_noteRelease` seconds
-  *after* `endTime`, and the loop in `_playbackAmplitude` (and
-  `activeNoteBubbles`) had to widen its own bound to match
+  *after* `endTime`, and the loop in `_playbackAmplitude` had to widen its own bound to match
   (`note.endTime + _noteRelease`) or the release tail would simply never
   be reached in the first place — the envelope and the code deciding
   whether to even evaluate it have to agree on where a note's influence
@@ -472,13 +341,6 @@ version's pulses read as too big and too mechanically on/off):
   re-rolled every frame. Small, but it's the difference between every
   pop looking like a mechanically identical copy of the last one and
   each one landing with its own slightly different timing
-- **Note-name bubbles fade with the same envelope that drives the
-  pulse**: `activeNoteBubbles` returns each currently-labelable pitch
-  class's loudest matching note *and* that note's own envelope value, so
-  `_paintNoteBubble`'s alpha is driven by the identical number shaping
-  the fluid's bump — the label and the bump always appear and disappear
-  in lockstep, rather than the label using its own separate fade timer
-  that could drift out of sync
 - **A shared resting baseline removes a hidden snap**: `_playbackAmplitude`
   used to return a literal `0.0` for every spike the instant
   `scene.playingAll` was false→true (or the reverse), with only
@@ -580,7 +442,13 @@ techniques, written out as ordinary code.
   is tested directly against hand-built note/chord data, without needing
   real audio or the ML model
 - `flutter test` (`app/test/`) — Dart model parsing (`Analysis.fromJson`
-  and friends) is tested the same way, independent of the UI
+  and friends), the mascot's mood rules, the contour geometry and the
+  fluid field math are all tested as plain functions, independent of any
+  widget
+- Rendering a screen in a widget test: pump the real widget tree around a
+  fake controller, advance time with `tester.pump(duration)`, and save the
+  frame with `matchesGoldenFile` (`--update-goldens`). Load the real fonts
+  first with `FontLoader`, or every glyph renders as a box
 - Red-green TDD — writing a test that fails for the right reason *before*
   writing the code that makes it pass, used for both `explain.py` and the
   Dart models above
@@ -595,5 +463,3 @@ techniques, written out as ordinary code.
   thing (major/minor only, via Krumhansl-Schmuckler); detecting modes
   (Dorian, Mixolydian, etc.) or non-diatonic scales would be a separate
   step
-- **File upload / import** — the backend already accepts any audio file;
-  the app only offers live recording so far

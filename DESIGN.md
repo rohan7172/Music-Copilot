@@ -2,72 +2,96 @@
 
 <!-- impeccable:design-schema 1 -->
 
-Recorded from the built result (2026-10-29), not from intention — see
-`PRODUCT.md` for product context and
-`docs/superpowers/specs/2026-10-29-visual-identity-overhaul.md` for the
-brief this was built from.
+Recorded from the built result (2026-10-30), not from intention. Brief:
+Google Stitch project "Design System Foundation" (`17933563689007442256`,
+light screens) and `Inpiration/Mascot States and Emotions Sheet.png`.
+Spec: `docs/superpowers/specs/2026-10-30-stitch-ui-overhaul-design.md`.
 
 ## World
 
-Brief-pinned, not generated: `Inpiration/FULL APP LOOK REFERENCE.png` plus
-an explicit lavender/ivory ask. Restrained color strategy — one neutral
-ground, one accent — carried through every surface.
+Brief-pinned. A lavender bezel (`#726ABC`) around one rounded near-white
+canvas; quiet lavender-tinted chips and panels on it; one deep violet for
+the thing you can press next; lavender fluid walls along the canvas edges
+that move with the sound. Light only: every rendered Stitch screen is
+light, so the dark palette in the Stitch DESIGN.md text was not used.
 
-## Palette (`app/lib/theme.dart`)
+## Palette (`app/lib/theme.dart`, from the Stitch Tailwind config)
 
-- `Palette.paper` `#FAF8F4` — ivory ground, every screen's background.
-- `Palette.ink` `#2B2B2B` — body text, line art at low alpha.
-- `Palette.accent` `#8B7FC7` — the one lavender accent: buttons, the
-  record button, the mascot's body, the splash line.
-- `Palette.error` `#B5523B` — unchanged from before this pass.
-- `KeyColor` (`app/lib/key_color.dart`) is a **separate, intentional**
-  system layered on top once a key is detected: each of the 12 keys gets
-  its own hue (`pitchClass * 30°`), used for the ambient wash, the
-  waveform's "arrival" color, and the key-name text. This is not a
-  palette violation — it's the harmonic-identity layer the rest of the
-  design explicitly makes room for (see "Ambient atmosphere" in
-  `docs/concepts.md`).
+- `frame #726ABC` bezel · `canvas #FBFBFE` ground
+- `creamAlt #F3F2F8` chips, quiet buttons, panels · `container #F0EBFF`,
+  `containerHigh #EAE5FF`, `containerHighest #E4DFFE` note pills
+- `primary #5951A2` filled buttons, playhead, active chip
+- `primaryFixed #E4DFFF` / `onPrimaryFixed #17065E` secondary CTA pill
+- `noteActive #7065C7` sounding note · `noteSoft #9D93E8` tints
+- `fluid #8E87D8` → `fluidDeep #6D64BD` edge fluid gradient
+- `tint #ECEBFA` grid rules and scrub track
+- Text: `ink #3F3B63` labels, `onSurface #1B192F` headings,
+  `onSurfaceVariant #474551` body, `outline #787582` secondary
+- `error #BA1A1A`
+- Mascot (sampled from the sheet): body/stand `#9688D4`, grille
+  `#7164B5`, eyes `#3F3578`, accessories `#9D90DA`
 
-## Shape (`app/lib/theme.dart`)
+The per-key hue system (`KeyColor`, `HarmonicColor`) was removed: Stitch is
+monochrome lavender, and key identity now lives in text.
 
-- `Shape.pill` (999, i.e. fully round) — every button/chip
-  (`_QuietButton`, chord tabs) is a stadium shape: `RRect` with a corner
-  radius of half the shorter side.
-- No hard outlines anywhere; surfaces are separated by soft shadows
-  (small blur + offset) or color alone, never a 1px border.
+## Type
 
-## Components
+Plus Jakarta Sans only, bundled (`app/assets/fonts/`, weights 400–700).
+Scale: headlineXl 40/48, headlineLg 28/36 w600 (screen titles),
+headlineMd 22/28 w500, bodyLg 17/24, bodyMd 15/22, bodySm 13/18, labelLg
+14/20 w600, labelMd 12/16 w500 (chips), labelSm 11/14 w600 +0.06em
+uppercase (section labels), musicNote 20/24 w700. Times and counts use
+tabular figures.
 
-- **Mascot** (`app/lib/widgets/mascot.dart`) — a capsule body (the
-  stadium trick above), two dot eyes, one curved mouth line. Four
-  expressions driven by `Phase` (`expressionForPhase`, pure + unit
-  tested): idle (slow breath + periodic blink), listening (whiskers that
-  pulse with live input level), analyzing (gentle head-tilt), revealing
-  (a brief `easeOutBack` pop + deeper smile when results land). Large and
-  centered at rest; shrinks to a small presence pinned to the top of the
-  screen the moment there's a task underway, clear of the waveform and
-  pitch-lane area below it.
-- **`_QuietButton`** — the one secondary-button shape across the app:
-  an ivory stadium pill with a soft shadow and `InkWell` ripple.
-- **Splash** (`app/lib/screens/splash_screen.dart`) — one flowing line
-  on ivory, three Gaussian "ripples" timed to a synthesized three-note
-  chime (`scripts/generate_splash_chime.py`), then a plain fade into the
-  session screen. Tap anywhere to skip.
-- **Waveform / pitch lanes / chords** (`app/lib/widgets/score_canvas.dart`)
-  — unchanged in structure by this pass; inherits the new accent color
-  automatically since it already referenced `Palette.accent`.
+## Shape, space, depth
 
-## Layout
+- Radii: panel 16, large 24 (sheets), canvas 40, pills fully round.
+- Space: 4 / 8 / 16 / 24 / 40; page margin 24 inside the canvas.
+- No outlines. Only filled primary controls cast a shadow (violet at 20%,
+  blur 14, y 4); everything else separates by tone.
 
-- `Layout.maxContentWidth` (480) — every screen centers its content in a
-  phone-proportioned column and lets the ivory ground show on either
-  side past that width, so the app reads correctly both as the mobile
-  app it primarily is and as a desktop window. Verified at 375px
-  (mobile) and an 800px (desktop-width) viewport.
+## Components (`app/lib/widgets/`)
 
-## What this pass did not touch
+- **AppFrame / AppHeader** — bezel, canvas, "Music Copilot" + an `upload`
+  pill (hidden while recording/analyzing). Content centers at 480 max
+  width on wide windows.
+- **Pressable** — shared press feedback (scale 0.95), pointer cursor,
+  keyboard activation, semantics. Under **PillButton** (primary / soft /
+  quiet), **RoundAction** (circle, optional caption, toggle state),
+  **InfoChip** (status dot or icon + mixed-weight text), **SectionLabel**.
+- **Mascot** (`mascot/`) — drawn to the sheet's proportions in a 220×200
+  design box: capsule body, three-stroke grille, dot eyes, cradle stand.
+  Moods come from a pure `moodFor()`: idle, sleepy (30 s untouched),
+  tapped, listening (sound arcs follow mic level), concentrating
+  (analyzing), happy / excited (results land; excited when key confidence
+  ≥ 0.75), singing (playback), curious (nothing found / unsure key),
+  surprised (error). Mood changes swap eyes behind a blink. Reduce
+  Motion holds resting poses.
+- **Edge fluid** (`fluid_field.dart`) — metaball-style walls under the
+  header; reach is 16% of the shorter side, easing to half once results
+  are on screen; pulses with live volume while recording and per note
+  during playback.
+- **AcousticStream** — live loudness bars (3 × 40 ms samples per bar),
+  newest right, ending in a "now" dot; flattens while analyzing.
+- **ContourPanel** — "VOCAL CONTOUR": notes as pills on fitted pitch
+  lanes, dashed melody thread, playhead with time tag, scrubber. Pills
+  carry their name when every note has room; otherwise only the sounding
+  note is labelled. Tap a pill to hear it; tap elsewhere to play from there.
+- **Chord chips** — horizontal row, name + roman numeral, active filled.
 
-- Any new screen or route (Home / Library / Explore-Theory / Settings
-  from the reference board) — deferred; see the spec doc.
-- Exact color tuning beyond the stated lavender/ivory values.
-- The mascot is not yet named.
+## Screens (`app/lib/screens/`)
+
+Splash (mascot sleeps → sings to the chime → wakes) → one session screen
+that cross-fades between Idle (Play something · Live mic · File import),
+Listening/Analyzing (shared view; status chip + discard, mascot, stream,
+Stop & analyze), Results (new take · key · note count, mascot + key
+confidence line, contour, chords, loop / play / "why it works" sheet),
+No-notes, and Error (title, recovery message, Record again / Back to
+start).
+
+## Deliberately not built
+
+Stitch controls with no backing feature: harmony voicings, mix balance,
+Play Harmony, Songs & Vault, Settings & Tuner, Export MIDI, live cents /
+pitch readout, bpm, profile, bottom tab bar. Mascot states "looking
+around" and per-note colors.

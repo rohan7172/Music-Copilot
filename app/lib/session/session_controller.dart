@@ -134,6 +134,11 @@ class SessionController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  /// Lets a test or preview harness that has set up [scene] directly
+  /// refresh the screens.
+  @visibleForTesting
+  void debugNotify() => _changed();
+
   /// Any touch on the screen: keeps the mascot awake.
   void noteInteraction() {
     final wasAsleep = clock.value - lastInteractionAt > 30;

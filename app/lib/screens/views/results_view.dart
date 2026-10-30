@@ -25,14 +25,16 @@ class ResultsView extends StatelessWidget {
     final scene = controller.scene;
     final key = scene.key;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(Space.margin, Space.xs, Space.margin, Space.lg),
+      padding: const EdgeInsets.fromLTRB(
+        Space.margin,
+        Space.xs,
+        Space.margin,
+        Space.lg,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: Space.sm,
-            runSpacing: Space.sm,
-            alignment: WrapAlignment.spaceBetween,
+          Row(
             children: [
               InfoChip(
                 icon: Icons.refresh_rounded,
@@ -40,26 +42,33 @@ class ResultsView extends StatelessWidget {
                 onTap: controller.newTake,
                 children: const [TextSpan(text: 'new take')],
               ),
-              if (key != null)
-                InfoChip(
-                  dot: Palette.noteActive,
-                  semanticLabel: 'Key: ${key.name}',
-                  children: [
-                    const TextSpan(
-                      text: 'key: ',
-                      style: TextStyle(color: Palette.onSurfaceVariant),
-                    ),
-                    TextSpan(
-                      text: key.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ],
+              const Spacer(),
+              if (key != null) ...[
+                Flexible(
+                  flex: 0,
+                  child: InfoChip(
+                    dot: Palette.noteActive,
+                    semanticLabel: 'Key: ${key.name}',
+                    children: [
+                      const TextSpan(
+                        text: 'key: ',
+                        style: TextStyle(color: Palette.onSurfaceVariant),
+                      ),
+                      TextSpan(
+                        text: key.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: Space.sm),
+              ],
               InfoChip(
                 icon: Icons.music_note_rounded,
+                semanticLabel: '${notes.length} notes',
                 children: [
                   TextSpan(
-                    text: '${notes.length} note${notes.length == 1 ? '' : 's'}',
+                    text: '${notes.length}',
                     style: const TextStyle(fontFeatures: TextStyles.tabular),
                   ),
                 ],
@@ -120,12 +129,14 @@ class ResultsView extends StatelessWidget {
               const SizedBox(width: Space.md),
               Expanded(
                 child: PillButton(
-                  label: 'why it sounds this way',
+                  label: 'why it works',
                   trailingIcon: Icons.arrow_forward_rounded,
                   tone: PillTone.soft,
                   height: 48,
                   expand: true,
-                  textStyle: TextStyles.labelMd.copyWith(fontWeight: FontWeight.w600),
+                  textStyle: TextStyles.labelMd.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                   onTap: controller.explanation == null
                       ? null
                       : () => _showExplanation(context),
@@ -153,7 +164,9 @@ class ResultsView extends StatelessWidget {
         if (chord != null) scene.chords[chord].name,
         ...sounding.take(3),
       ];
-      return parts.isEmpty ? 'playing · ${clockText(playhead)}' : parts.join(' · ');
+      return parts.isEmpty
+          ? 'playing · ${clockText(playhead)}'
+          : parts.join(' · ');
     }
     final key = scene.key;
     if (key == null) return 'no clear key in this take';
@@ -200,7 +213,11 @@ class _ChordRow extends StatelessWidget {
 }
 
 class _ChordChip extends StatelessWidget {
-  const _ChordChip({required this.chord, required this.active, required this.onTap});
+  const _ChordChip({
+    required this.chord,
+    required this.active,
+    required this.onTap,
+  });
 
   final Chord chord;
   final bool active;
@@ -229,7 +246,9 @@ class _ChordChip extends StatelessWidget {
               style: TextStyles.labelSm.copyWith(
                 fontSize: 9,
                 letterSpacing: 0.2,
-                color: active ? Palette.onPrimary.withValues(alpha: 0.8) : Palette.outline,
+                color: active
+                    ? Palette.onPrimary.withValues(alpha: 0.8)
+                    : Palette.outline,
               ),
             ),
           ],
@@ -278,7 +297,8 @@ class _ExplanationSheet extends StatelessWidget {
                           text: segment.text,
                           style: linkStyle,
                           recognizer: TapGestureRecognizer()
-                            ..onTap = () => controller.playChord(segment.chordIndex!),
+                            ..onTap = () =>
+                                controller.playChord(segment.chordIndex!),
                         ),
               ],
             ),
@@ -292,7 +312,9 @@ class _ExplanationSheet extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: Space.sm),
                 child: Pressable(
                   pressedScale: 0.98,
-                  onTap: i < chords.length ? () => controller.playChord(i) : null,
+                  onTap: i < chords.length
+                      ? () => controller.playChord(i)
+                      : null,
                   child: Container(
                     padding: const EdgeInsets.all(Space.md),
                     decoration: BoxDecoration(
@@ -304,14 +326,24 @@ class _ExplanationSheet extends StatelessWidget {
                         if (i < chords.length) ...[
                           SizedBox(
                             width: 52,
-                            child: Text(chords[i].name, style: TextStyles.musicNote),
+                            child: Text(
+                              chords[i].name,
+                              style: TextStyles.musicNote,
+                            ),
                           ),
                           const SizedBox(width: Space.sm),
                         ],
                         Expanded(
-                          child: Text(explanation.chords[i].text, style: TextStyles.bodyMd),
+                          child: Text(
+                            explanation.chords[i].text,
+                            style: TextStyles.bodyMd,
+                          ),
                         ),
-                        const Icon(Icons.play_arrow_rounded, color: Palette.outline, size: 20),
+                        const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Palette.outline,
+                          size: 20,
+                        ),
                       ],
                     ),
                   ),
@@ -339,7 +371,11 @@ class _NothingFound extends StatelessWidget {
           const Spacer(flex: 3),
           SessionMascot(controller: controller, width: 180),
           const SizedBox(height: Space.lg),
-          Text('No notes found', style: TextStyles.headlineLg, textAlign: TextAlign.center),
+          Text(
+            'No notes found',
+            style: TextStyles.headlineLg,
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: Space.sm),
           Text(
             'I couldn’t pick out a clear pitch. Try a steadier, sustained tone '

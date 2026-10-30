@@ -31,11 +31,14 @@ class IdleView extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: Space.sm),
-              Text(
-                'Sing, hum, or play anything and I’ll find the notes, '
-                'the chords and the key.',
-                style: TextStyles.bodyMd,
-                textAlign: TextAlign.center,
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 280),
+                child: Text(
+                  'Sing, hum, or play anything and I’ll find the notes, '
+                  'the chords and the key.',
+                  style: TextStyles.bodyMd,
+                  textAlign: TextAlign.center,
+                ),
               ),
               SizedBox(height: compact ? Space.lg : Space.xl),
               Row(

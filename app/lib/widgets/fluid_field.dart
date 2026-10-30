@@ -5,7 +5,6 @@ import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
-import '../models/note.dart';
 import '../theme.dart';
 import '../session/scene.dart';
 
@@ -24,7 +23,7 @@ const _rimSamples = 180;
 
 /// How far inward the fluid can reach, as a fraction of the canvas's
 /// shorter side.
-const _maxLenFraction = 0.34;
+const _maxLenFraction = 0.16;
 
 /// One "finger" per pitch-class position around the rim, same as the
 /// reference prototype's 12 anchors.
@@ -100,12 +99,12 @@ double edgeTaper(double t, Size size) {
   return 1.0;
 }
 
-/// Two unrelated sine frequencies multiplied — the same "organic,
-/// never-quite-looping" trick already used throughout this app
-/// (`ribbonWobbleY`). [x] plays the role `f` plays there: a spatial seed so
-/// each spike's amplitude drifts independently rather than in lockstep.
+/// Two unrelated sine frequencies multiplied — an "organic,
+/// never-quite-looping" motion. [x] is a spatial seed so each spike's
+/// amplitude drifts independently rather than in lockstep.
 double _ripple(double x, double now) =>
-    0.5 + 0.5 * math.sin(now * 1.7 + x * 2.31) * math.sin(now * 0.73 + x * 1.13);
+    0.5 +
+    0.5 * math.sin(now * 1.7 + x * 2.31) * math.sin(now * 0.73 + x * 1.13);
 
 /// 0..1 how strongly spike [k] is reaching out at rest (idle, or fading out
 /// while analyzing) — a low, slow simmer with no connection to audio, since
@@ -175,7 +174,7 @@ double fieldLengthAt(double t, double now, Scene scene) {
   return (1 - math.exp(-sum * _saturationGain)).clamp(0.0, 1.0);
 }
 
-const _settledReachScale = 0.58;
+const _settledReachScale = 0.5;
 const _settleDuration = 0.6;
 
 /// How far inward the fluid is *allowed* to reach right now, as a
@@ -185,9 +184,8 @@ const _settleDuration = 0.6;
 /// to the edges" when the user stops recording rather than disappearing:
 /// an earlier version faded it to fully transparent here instead, which
 /// read as the fluid vanishing rather than remaining a persistent part of
-/// the screen. It also keeps the fluid out of the way once notes/chords
-/// are on screen (`ScorePainter`'s own content lives in the same central
-/// area) without a separate, redundant "is there room" check.
+/// the screen. It also keeps the fluid clear of the results panels, which
+/// run close to the canvas edges.
 double reachScale(Scene scene, double now) {
   switch (scene.phase) {
     case Phase.idle:
@@ -197,7 +195,8 @@ double reachScale(Scene scene, double now) {
       final start = scene.analyzeStart;
       if (start == null) return _settledReachScale;
       final t = ((now - start) / _settleDuration).clamp(0.0, 1.0);
-      return 1.0 + (_settledReachScale - 1.0) * Curves.easeOutCubic.transform(t);
+      return 1.0 +
+          (_settledReachScale - 1.0) * Curves.easeOutCubic.transform(t);
     case Phase.settled:
       return _settledReachScale;
   }
@@ -248,9 +247,9 @@ double _noteEnvelope(double playhead, double noteStart, double noteEnd) {
 /// same 12 evenly-spaced rim positions this file already has for every
 /// other phase, mapped the way the reference prototype maps pitch classes
 /// onto clock positions (`Inpiration/ferroflow_music.html`'s `slotOf`),
-/// just adapted to this file's rim instead of a full circle. Mirrors the
-/// "is this currently sounding" convention `ScorePainter._paintNotes`/
-/// `_paintChords` already use (`scene.playingAll && playhead != null &&
+/// just adapted to this file's rim instead of a full circle. Uses the same
+/// "is this currently sounding" test as the vocal contour
+/// (`scene.playingAll && playhead != null &&
 /// playhead >= note.startTime && playhead <= note.endTime`), just widened
 /// past `endTime` by [_noteRelease] so the release tail in [_noteEnvelope]
 /// actually gets to play out instead of being cut off by this loop first.
@@ -278,38 +277,18 @@ double _playbackAmplitude(int k, double now, Scene scene) {
   var amp = base;
   for (final note in scene.notes) {
     final pc = ((note.midiPitch % 12) + 12) % 12;
-    if (pc != k || playhead < note.startTime || playhead > note.endTime + _noteRelease) continue;
+    if (pc != k ||
+        playhead < note.startTime ||
+        playhead > note.endTime + _noteRelease) {
+      continue;
+    }
     amp = math.max(
       amp,
-      _playbackActiveAmplitude * _noteEnvelope(playhead, note.startTime, note.endTime),
+      _playbackActiveAmplitude *
+          _noteEnvelope(playhead, note.startTime, note.endTime),
     );
   }
   return amp.clamp(0.0, 1.0);
-}
-
-const _bubbleThreshold = 0.4;
-
-/// Which pitch classes currently have a note sounding strongly enough to
-/// label with its name, which actual note to show (the loudest match —
-/// a chord voiced across octaves shares a pitch class but only needs one
-/// label), and that note's own current envelope (so a caller can fade the
-/// label in/out exactly in step with the pulse it's labeling, rather than
-/// popping it in/out abruptly). Empty outside active playback.
-List<({int pitchClass, Note note, double envelope})> activeNoteBubbles(Scene scene) {
-  final playhead = scene.playhead;
-  if (scene.phase != Phase.settled || !scene.playingAll || playhead == null) return const [];
-  final best = <int, ({Note note, double envelope})>{};
-  for (final note in scene.notes) {
-    if (playhead < note.startTime || playhead > note.endTime + _noteRelease) continue;
-    final env = _noteEnvelope(playhead, note.startTime, note.endTime);
-    if (env < _bubbleThreshold) continue;
-    final pc = ((note.midiPitch % 12) + 12) % 12;
-    final current = best[pc];
-    if (current == null || env > current.envelope) best[pc] = (note: note, envelope: env);
-  }
-  return [
-    for (final e in best.entries) (pitchClass: e.key, note: e.value.note, envelope: e.value.envelope),
-  ];
 }
 
 /// 0 before rim position [t] has started growing in, 1 once fully grown.
@@ -321,8 +300,9 @@ double _entranceGrowthAt(double now, double? introStart, double t) {
   if (introStart == null) return 1.0;
   const staggerSpan = 0.5;
   final staggerOffset = t * staggerSpan;
-  final local = ((now - introStart - staggerOffset) / (introDuration - staggerSpan))
-      .clamp(0.0, 1.0);
+  final local =
+      ((now - introStart - staggerOffset) / (introDuration - staggerSpan))
+          .clamp(0.0, 1.0);
   return Curves.easeOutCubic.transform(local);
 }
 
@@ -347,7 +327,11 @@ const _dropletDuration = 0.65;
 /// that actually shapes the fluid (see `_recordingAmplitude`) —
 /// `Scene.lastPeakAt` still fires on the same loudness-rising-edge signal
 /// the mascot's own peak bob already reacts to.
-({Offset position, double progress})? activeDroplet(double now, Scene scene, Size size) {
+({Offset position, double progress})? activeDroplet(
+  double now,
+  Scene scene,
+  Size size,
+) {
   if (scene.phase != Phase.recording) return null;
   final peakAt = scene.lastPeakAt;
   if (peakAt == null) return null;
@@ -359,47 +343,6 @@ const _dropletDuration = 0.65;
   final maxLen = math.min(size.width, size.height) * _maxLenFraction;
   final travel = maxLen * (0.5 + 0.9 * Curves.easeOut.transform(t));
   return (position: anchor + inward * travel, progress: t);
-}
-
-/// A small floating name tag for a currently-pulsing note — "the
-/// significance of the pop," so a bump reads as a specific note rather
-/// than an unexplained wobble. Styled as the same paper pill + soft
-/// shadow language already used elsewhere in this app (`_QuietButton` in
-/// `session_screen.dart`, the chord tabs in `ScorePainter._paintChords`)
-/// rather than inventing a new one. [envelope] (from [activeNoteBubbles])
-/// drives its alpha directly, so it fades in and out exactly in step with
-/// the pulse it's labeling instead of popping in/out abruptly.
-void _paintNoteBubble(Canvas canvas, Offset center, String label, double envelope) {
-  if (envelope <= 0.01) return;
-  final painter = TextPainter(
-    text: TextSpan(
-      text: label,
-      style: TextStyles.labelSm.copyWith(
-        letterSpacing: 0.2,
-        color: Palette.ink.withValues(alpha: 0.85 * envelope),
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
-
-  final rect = Rect.fromCenter(center: center, width: painter.width + 16, height: 20);
-  final shape = RRect.fromRectAndRadius(rect, const Radius.circular(10));
-
-  canvas.drawRRect(
-    shape.shift(const Offset(0, 1.5)),
-    Paint()
-      ..color = Palette.ink.withValues(alpha: 0.08 * envelope)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
-  );
-  canvas.drawRRect(shape, Paint()..color = Palette.canvas.withValues(alpha: 0.95 * envelope));
-  canvas.drawRRect(
-    shape,
-    Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = Palette.fluidDeep.withValues(alpha: 0.35 * envelope),
-  );
-  painter.paint(canvas, Offset(center.dx - painter.width / 2, center.dy - painter.height / 2));
 }
 
 /// A liquid/metaball-style field hugging the top and side edges of the
@@ -446,7 +389,10 @@ class FluidFieldPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final now = clock.value;
-    final maxLen = math.min(size.width, size.height) * _maxLenFraction * reachScale(scene, now);
+    final maxLen =
+        math.min(size.width, size.height) *
+        _maxLenFraction *
+        reachScale(scene, now);
 
     Offset innerPoint(double t) {
       final anchor = edgeAnchor(t, size);
@@ -461,7 +407,10 @@ class FluidFieldPainter extends CustomPainter {
     // Outer boundary: the screen's own rim, corner to corner, down to the
     // true bottom-left/bottom-right points — with a small fillet rounding
     // the two top corners instead of a hard right angle.
-    final cornerR = math.min(_topCornerRadius, math.min(size.width, size.height) / 2);
+    final cornerR = math.min(
+      _topCornerRadius,
+      math.min(size.width, size.height) / 2,
+    );
     final path = Path()
       ..moveTo(0, size.height)
       ..lineTo(0, cornerR)
@@ -471,8 +420,8 @@ class FluidFieldPainter extends CustomPainter {
       ..lineTo(size.width, size.height);
 
     // Inner boundary: the field-driven curve, traced back from t=1 to t=0
-    // and smoothed with the same quadratic-bezier-through-midpoints
-    // technique `strokeMusicalLine` uses, so it reads as a flowing curve
+    // and smoothed with a quadratic bezier through each pair's midpoint,
+    // so it reads as a flowing curve
     // rather than a faceted polyline. Near each end, `edgeTaper` has
     // already pulled these points in to meet the outer boundary almost
     // exactly, so closing the path here naturally pinches to a point at
@@ -515,16 +464,9 @@ class FluidFieldPainter extends CustomPainter {
         );
       }
     }
-
-    // Name tags for whichever notes are currently pulsing — see
-    // `activeNoteBubbles`/`_paintNoteBubble`.
-    for (final bubble in activeNoteBubbles(scene)) {
-      final t = bubble.pitchClass / _spikeCount;
-      final anchor = innerPoint(t) + edgeInward(t, size) * 18;
-      _paintNoteBubble(canvas, anchor, bubble.note.pitch, bubble.envelope);
-    }
   }
 
   @override
-  bool shouldRepaint(FluidFieldPainter oldDelegate) => oldDelegate.scene != scene;
+  bool shouldRepaint(FluidFieldPainter oldDelegate) =>
+      oldDelegate.scene != scene;
 }

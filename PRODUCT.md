@@ -65,41 +65,47 @@ for the user to interpret from raw theory labels.
   rather than stretching edge-to-edge.
 - Current implementation: live recording + file upload, Basic Pitch
   note recognition, rule-based chord/key detection (major/minor only —
-  no modal detection yet), rule-based plain-language explanations, a
-  single waveform-and-pitch-lane canvas screen
-  (`app/lib/widgets/score_canvas.dart`) driven by
-  `app/lib/screens/session_screen.dart`.
+  no modal detection yet), rule-based plain-language explanations. The
+  UI is one session screen (`app/lib/screens/session_screen.dart`)
+  cross-fading between per-phase views (`app/lib/screens/views/`), all
+  reading one `SessionController` (`app/lib/session/`).
 - No persistence between sessions yet; no user accounts.
-- A visual-identity redesign (mascot, splash screen, lavender/ivory
-  theme) is in progress as of 2026-10-29; see
-  `docs/superpowers/specs/2026-10-29-visual-identity-overhaul.md`. It
-  is explicitly UI-only — new functionality suggested by the design
-  references (ear training, a theory explorer, a recordings library,
-  settings) is deferred, not built now.
+- The UI was rebuilt on 2026-10-30 from the Google Stitch project
+  "Design System Foundation"; see
+  `docs/superpowers/specs/2026-10-30-stitch-ui-overhaul-design.md`. It is
+  UI-only: Stitch controls with no backing feature (harmony voicings, mix,
+  library/Vault, settings/tuner, MIDI export) are omitted, not faked.
 
 ## Brand Commitments
 
 - Product name: "Music Copilot" (confirmed, from the README and
   project name).
-- A simple 2D mascot — a rounded "pill"-shaped character with two dot
-  eyes and a single curved mouth/grille line — is the app's recurring
-  visual identity going forward. Reference:
-  `Inpiration/MASCOT_SUGGESTION1.png`. Not yet named; naming is an
-  open, optional follow-up.
-- Palette: lavender as the single accent color, on an ivory/cream
-  background. Reference: `Inpiration/FULL APP LOOK REFERENCE.png` (an
-  8-screen concept board; only the visual language is binding here, not
-  its screen/navigation structure — see Capabilities and Constraints).
+- The mascot — a capsule-bodied microphone with a three-line grille, two
+  dot eyes and a cradle-shaped stand — is the app's recurring visual
+  identity, drawn exactly as `Inpiration/Mascot States and Emotions
+  Sheet.png` shows it, including that sheet's emotional states. Not yet
+  named; naming is an open, optional follow-up.
+- Palette: light lavender — a lavender bezel around a near-white canvas,
+  deep violet for primary actions — taken from the Stitch project's light
+  screens (see `DESIGN.md`). Typeface: Plus Jakarta Sans.
 
 ## Evidence on Hand
 
-- `Inpiration/FULL APP LOOK REFERENCE.png` — primary visual-world
-  reference: 8 mobile screens (Home, Listening, Detected Note, Harmony
+- Google Stitch project "Design System Foundation"
+  (`17933563689007442256`) — the binding visual reference since
+  2026-10-30: Idle, Live Listening, Note Analysis and Harmony Studio
+  screens (plus fluid and "2D refined" variants), and its design-system
+  tokens. Its light screens win over its DESIGN.md text, which describes
+  a dark theme.
+- `Inpiration/Mascot States and Emotions Sheet.png` — the exact mascot and
+  its 12 states.
+- `Inpiration/FULL APP LOOK REFERENCE.png` — the earlier visual-world
+  reference, superseded by Stitch: 8 mobile screens (Home, Listening, Detected Note, Harmony
   Suggestions, Harmony Playing, Library, Explore/Theory, Settings) in
   lavender-on-ivory with the pill mascot, soft color-coded flowing
   lines, pill-shaped suggestion chips, a 3-icon bottom tab bar.
-- `Inpiration/MASCOT_SUGGESTION1.png` — mascot icon treatment (dark
-  background, single mascot face).
+- `Inpiration/MASCOT_SUGGESTION1.png` — an earlier mascot icon treatment,
+  superseded by the states sheet.
 - `Inpiration/Audio Presence Concepts.rtf`,
   `Inpiration/Organic UI Principles.rtf`,
   `Inpiration/First-Use Experience Onboarding.rtf`,

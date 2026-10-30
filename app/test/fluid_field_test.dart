@@ -260,61 +260,6 @@ void main() {
     });
   });
 
-  group('activeNoteBubbles', () {
-    test('is empty outside settled/playing', () {
-      final analyzing = Scene()
-        ..phase = Phase.analyzing
-        ..playingAll = true
-        ..playhead = 1.0
-        ..notes = [_note(60, 0.5, 1.5)];
-      expect(activeNoteBubbles(analyzing), isEmpty);
-
-      final notPlaying = Scene()
-        ..phase = Phase.settled
-        ..playingAll = false
-        ..playhead = 1.0
-        ..notes = [_note(60, 0.5, 1.5)];
-      expect(activeNoteBubbles(notPlaying), isEmpty);
-    });
-
-    test('is empty right as a note starts, before it crosses the label threshold', () {
-      final scene = Scene()
-        ..phase = Phase.settled
-        ..playingAll = true
-        ..playhead = 0.5
-        ..notes = [_note(60, 0.5, 1.5)];
-      expect(activeNoteBubbles(scene), isEmpty);
-    });
-
-    test('labels a clearly-sounding note with its own pitch class', () {
-      final scene = Scene()
-        ..phase = Phase.settled
-        ..playingAll = true
-        ..playhead = 1.0
-        ..notes = [_note(60, 0.5, 1.5)]; // pitch class 0
-
-      final bubbles = activeNoteBubbles(scene);
-      expect(bubbles, hasLength(1));
-      expect(bubbles.single.pitchClass, 0);
-      expect(bubbles.single.envelope, greaterThan(0));
-    });
-
-    test('picks the higher-envelope note when two notes share a pitch class', () {
-      final justStarted = _note(60, 0.95, 2.0); // low envelope, barely begun
-      final wellIntoIt = _note(72, 0.0, 2.0); // same pitch class (0), fully sounding
-      final scene = Scene()
-        ..phase = Phase.settled
-        ..playingAll = true
-        ..playhead = 1.0
-        ..notes = [justStarted, wellIntoIt];
-
-      final bubbles = activeNoteBubbles(scene);
-      final forC = bubbles.where((b) => b.pitchClass == 0);
-      expect(forC, hasLength(1));
-      expect(forC.single.note, wellIntoIt);
-    });
-  });
-
   group('reachScale', () {
     test('is full strength at idle and recording', () {
       expect(reachScale(Scene()..phase = Phase.idle, 5.0), 1.0);

@@ -14,7 +14,11 @@ import 'views/results_view.dart';
 /// The one screen the app lives on: the framed canvas with the edge fluid
 /// behind it, showing whichever view the session's phase calls for.
 class SessionScreen extends StatefulWidget {
-  const SessionScreen({super.key});
+  const SessionScreen({super.key, this.createController});
+
+  /// Lets a test or preview harness drive the screen with its own session.
+  @visibleForTesting
+  final SessionController Function(TickerProvider vsync)? createController;
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
@@ -22,7 +26,8 @@ class SessionScreen extends StatefulWidget {
 
 class _SessionScreenState extends State<SessionScreen>
     with SingleTickerProviderStateMixin {
-  late final SessionController _controller = SessionController(vsync: this);
+  late final SessionController _controller =
+      widget.createController?.call(this) ?? SessionController(vsync: this);
 
   @override
   void dispose() {
@@ -54,7 +59,10 @@ class _SessionScreenState extends State<SessionScreen>
             ),
             background: RepaintBoundary(
               child: CustomPaint(
-                painter: FluidFieldPainter(_controller.scene, _controller.clock),
+                painter: FluidFieldPainter(
+                  _controller.scene,
+                  _controller.clock,
+                ),
               ),
             ),
             child: AnimatedSwitcher(

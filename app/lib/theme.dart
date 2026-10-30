@@ -23,6 +23,7 @@ class Palette {
   static const creamAlt = Color(0xFFF3F2F8);
   static const container = Color(0xFFF0EBFF);
   static const containerHigh = Color(0xFFEAE5FF);
+  static const containerHighest = Color(0xFFE4DFFE);
 
   /// The one "press me" color: filled buttons, playhead, active chip.
   static const primary = Color(0xFF5951A2);
@@ -178,7 +179,7 @@ class Space {
   static const xl = 40.0;
 
   /// Horizontal page margin inside the canvas.
-  static const margin = 20.0;
+  static const margin = 24.0;
 }
 
 /// Primarily a mobile app, but built to also run as a desktop app — on a

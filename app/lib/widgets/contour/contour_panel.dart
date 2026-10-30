@@ -41,7 +41,8 @@ class ContourPanel extends StatelessWidget {
             'vocal contour',
             trailing: ValueListenableBuilder<double>(
               valueListenable: controller.clock,
-              builder: (context, _, _) => _SoundingNow(scene: scene, notes: notes),
+              builder: (context, _, _) =>
+                  _SoundingNow(scene: scene, notes: notes),
             ),
           ),
           const SizedBox(height: 10),
@@ -112,7 +113,9 @@ class _SoundingNow extends StatelessWidget {
         (n) => playhead >= n.startTime && playhead < n.endTime,
       );
       if (sounding.isNotEmpty) {
-        final top = sounding.reduce((a, b) => a.midiPitch >= b.midiPitch ? a : b);
+        final top = sounding.reduce(
+          (a, b) => a.midiPitch >= b.midiPitch ? a : b,
+        );
         label = top.pitch;
       }
     }
@@ -165,10 +168,9 @@ class _ContourPainter extends CustomPainter {
     final settle = scene.settleStart ?? -10;
     final n = layout.notes.length;
     final stagger = math.min(0.045, 1.0 / math.max(1, n));
-    double arrival(int i) =>
-        Curves.easeOutBack.transform(
-          ((now - settle - 0.15 - i * stagger) / 0.38).clamp(0.0, 1.0),
-        );
+    double arrival(int i) => Curves.easeOutBack.transform(
+      ((now - settle - 0.15 - i * stagger) / 0.38).clamp(0.0, 1.0),
+    );
 
     final threadReveal = ((now - settle - 0.2) / 0.9).clamp(0.0, 1.0);
     _paintThread(canvas, threadReveal);
@@ -179,8 +181,11 @@ class _ContourPainter extends CustomPainter {
       if (a <= 0) continue;
       final note = layout.notes[i];
       final sounding =
-          playhead != null && playhead >= note.startTime && playhead < note.endTime;
-      final active = sounding || (!scene.playingAll && scene.selected == visible[i]);
+          playhead != null &&
+          playhead >= note.startTime &&
+          playhead < note.endTime;
+      final active =
+          sounding || (!scene.playingAll && scene.selected == visible[i]);
       _paintPill(canvas, layout.pill(i), note, active, a);
     }
 
@@ -230,19 +235,29 @@ class _ContourPainter extends CustomPainter {
       for (final metric in path.computeMetrics()) {
         // Dashed, as in the Stitch contour: 3 on, 4 off.
         for (var d = 0.0; d < metric.length; d += 7) {
-          canvas.drawPath(metric.extractPath(d, math.min(d + 3, metric.length)), paint);
+          canvas.drawPath(
+            metric.extractPath(d, math.min(d + 3, metric.length)),
+            paint,
+          );
         }
       }
       canvas.restore();
     }
   }
 
-  void _paintPill(Canvas canvas, Rect rect, Note note, bool active, double arrival) {
+  void _paintPill(
+    Canvas canvas,
+    Rect rect,
+    Note note,
+    bool active,
+    double arrival,
+  ) {
     final label = TextPainter(
       text: TextSpan(
         text: note.pitch,
         style: TextStyles.labelSm.copyWith(
-          letterSpacing: 0.2,
+          fontSize: 10,
+          letterSpacing: 0,
           color: active ? Palette.onPrimary : Palette.ink,
         ),
       ),
@@ -252,7 +267,7 @@ class _ContourPainter extends CustomPainter {
     // A sounding note too short to fit its own name grows just enough to
     // show it, so what you hear always has a name on screen.
     var r = rect;
-    final needed = label.width + 14;
+    final needed = label.width + 10;
     if (active && r.width < needed) {
       r = Rect.fromLTWH(
         math.min(r.left, layout.right - needed),
@@ -270,13 +285,21 @@ class _ContourPainter extends CustomPainter {
     final shape = RRect.fromRectAndRadius(r, Radius.circular(r.height / 2));
     final color = active
         ? Palette.noteActive
-        : (note.confidence >= 0.7 ? Palette.container : Palette.containerHigh);
+        // Unlabelled pills need more presence than the Stitch tint alone.
+        : Color.lerp(
+            Palette.containerHighest,
+            Palette.noteSoft,
+            note.confidence >= 0.7 ? 0.4 : 0.2,
+          )!;
     canvas.drawRRect(shape, Paint()..color = color.withValues(alpha: opacity));
     if (r.width >= needed) {
       canvas.saveLayer(r, Paint()..color = Color.fromRGBO(0, 0, 0, opacity));
       label.paint(
         canvas,
-        Offset(r.left + (r.width - label.width) / 2, r.center.dy - label.height / 2),
+        Offset(
+          r.left + (r.width - label.width) / 2,
+          r.center.dy - label.height / 2,
+        ),
       );
       canvas.restore();
     }
@@ -310,12 +333,17 @@ class _ContourPainter extends CustomPainter {
       const Radius.circular(4),
     );
     canvas.drawRRect(box, Paint()..color = Palette.primary);
-    tag.paint(canvas, Offset(left + 5, size.height - 17 + (14 - tag.height) / 2));
+    tag.paint(
+      canvas,
+      Offset(left + 5, size.height - 17 + (14 - tag.height) / 2),
+    );
   }
 
   @override
   bool shouldRepaint(_ContourPainter old) =>
-      old.layout.size != layout.size || old.scene != scene || old.visible != visible;
+      old.layout.size != layout.size ||
+      old.scene != scene ||
+      old.visible != visible;
 }
 
 /// 00:00 ——●—— 00:12, tap or drag to play from a point.
@@ -406,7 +434,11 @@ class _ScrubPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(x0, y), Offset(x1, y), track..color = Palette.tint);
     if (fraction > 0) {
-      canvas.drawLine(Offset(x0, y), Offset(x, y), track..color = Palette.fluid);
+      canvas.drawLine(
+        Offset(x0, y),
+        Offset(x, y),
+        track..color = Palette.fluid,
+      );
     }
     canvas.drawCircle(Offset(x, y), 8, Paint()..color = Palette.canvas);
     canvas.drawCircle(Offset(x, y), 4, Paint()..color = Palette.primary);

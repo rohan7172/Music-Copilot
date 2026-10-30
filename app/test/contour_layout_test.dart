@@ -40,6 +40,7 @@ void main() {
       duration: 10,
     );
     expect(short.pill(0).width, greaterThanOrEqualTo(ContourLayout.minPillWidth));
+    expect(short.pillFloor, ContourLayout.labelPillWidth); // one note: room for its name
   });
 
   test('tapping a pill finds its note, empty space finds none', () {

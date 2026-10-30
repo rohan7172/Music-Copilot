@@ -139,9 +139,9 @@ class PillButton extends StatelessWidget {
           shadows: tone == PillTone.primary
               ? [
                   BoxShadow(
-                    color: Palette.primary.withValues(alpha: 0.28),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
+                    color: Palette.primary.withValues(alpha: 0.2),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
                   ),
                 ]
               : null,
@@ -196,9 +196,9 @@ class RoundAction extends StatelessWidget {
         boxShadow: tone == PillTone.primary
             ? [
                 BoxShadow(
-                  color: Palette.primary.withValues(alpha: 0.3),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
+                  color: Palette.primary.withValues(alpha: 0.2),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
                 ),
               ]
             : null,

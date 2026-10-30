@@ -206,7 +206,8 @@ class MascotPainter extends CustomPainter {
         sx = sy = 1 + 0.012 * slow;
       case MascotMood.tapped:
         // A quick squash, then a little stretch back.
-        final squash = _bump(since, 0, 0.16) * 0.09 - _bump(since, 0.16, 0.44) * 0.05;
+        final squash =
+            _bump(since, 0, 0.16) * 0.09 - _bump(since, 0.16, 0.44) * 0.05;
         sy = 1 - squash;
         sx = 1 + squash * 0.7;
         dy = -6 * _bump(since, 0.16, 0.44);
@@ -274,7 +275,8 @@ class MascotPainter extends CustomPainter {
     // Changing mood swaps the eyes behind a quick blink, and the resting
     // moods blink on their own every few seconds.
     var open = since < 0.18 ? (since - 0.09).abs() / 0.09 : 1.0;
-    final blinks = mood == MascotMood.idle ||
+    final blinks =
+        mood == MascotMood.idle ||
         mood == MascotMood.listening ||
         mood == MascotMood.tapped ||
         mood == MascotMood.curious;
@@ -360,7 +362,12 @@ class MascotPainter extends CustomPainter {
       case MascotMood.surprised:
         _paintTicks(canvas, ink, _surprisedTicks, _fadeIn(since));
       case MascotMood.tapped:
-        _paintTicks(canvas, ink, _tapTicks, 1 - _ramp(since, 0.25, tapReaction));
+        _paintTicks(
+          canvas,
+          ink,
+          _tapTicks,
+          1 - _ramp(since, 0.25, tapReaction),
+        );
       case MascotMood.singing:
         _paintNotes(canvas, now);
       case MascotMood.curious:
@@ -378,14 +385,18 @@ class MascotPainter extends CustomPainter {
     for (var ring = 0; ring < 2; ring++) {
       final ripple = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 1.2 - ring * 0.9);
       final reach = 60.0 + ring * 18 + lvl * 8 * (ring + 1);
-      final alpha = (0.25 + 0.75 * lvl) * (0.55 + 0.45 * ripple) * (ring == 0 ? 1 : 0.75);
+      final alpha =
+          (0.25 + 0.75 * lvl) * (0.55 + 0.45 * ripple) * (ring == 0 ? 1 : 0.75);
       final paint = Paint()
         ..color = MascotColors.accent.withValues(alpha: alpha.clamp(0.0, 1.0))
         ..style = PaintingStyle.stroke
         ..strokeWidth = ink.strokeWidth
         ..strokeCap = StrokeCap.round;
       for (final side in const [-1.0, 1.0]) {
-        final rect = Rect.fromCircle(center: const Offset(0, _eyeY + 8), radius: reach);
+        final rect = Rect.fromCircle(
+          center: const Offset(0, _eyeY + 8),
+          radius: reach,
+        );
         final start = side > 0 ? -0.42 : math.pi - 0.42;
         canvas.drawArc(rect, start, 0.84, false, paint);
       }
@@ -451,7 +462,13 @@ class MascotPainter extends CustomPainter {
     }
   }
 
-  void _paintNote(Canvas canvas, Offset at, double scale, double alpha, double lean) {
+  void _paintNote(
+    Canvas canvas,
+    Offset at,
+    double scale,
+    double alpha,
+    double lean,
+  ) {
     if (alpha <= 0.02) return;
     final color = MascotColors.accent.withValues(alpha: alpha);
     canvas.save();
@@ -524,7 +541,8 @@ class MascotPainter extends CustomPainter {
   static double _decayingHops(double since, double hop) {
     final n = since / hop;
     if (n > 4) return 0;
-    return math.sin(math.pi * (n % 1)).abs() * math.pow(0.55, n.floor()).toDouble();
+    return math.sin(math.pi * (n % 1)).abs() *
+        math.pow(0.55, n.floor()).toDouble();
   }
 
   @override

@@ -26,7 +26,12 @@ class ListeningView extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.margin, Space.xs, Space.margin, Space.lg),
+      padding: const EdgeInsets.fromLTRB(
+        Space.margin,
+        Space.xs,
+        Space.margin,
+        Space.lg,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -82,32 +87,41 @@ class ListeningView extends StatelessWidget {
             ),
           ),
           const Spacer(flex: 2),
-          Row(
-            children: [
-              Text('00:00', style: timeStyle),
-              Expanded(
-                child: Text(
-                  'acoustic stream',
-                  style: TextStyles.labelMd.copyWith(color: Palette.onSurfaceVariant),
-                  textAlign: TextAlign.center,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.md),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Text('00:00', style: timeStyle),
+                    Expanded(
+                      child: Text(
+                        'acoustic stream',
+                        style: TextStyles.labelMd.copyWith(
+                          color: Palette.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    ValueListenableBuilder<double>(
+                      valueListenable: controller.clock,
+                      builder: (context, _, _) =>
+                          Text(clockText(scene.liveDuration), style: timeStyle),
+                    ),
+                  ],
                 ),
-              ),
-              ValueListenableBuilder<double>(
-                valueListenable: controller.clock,
-                builder: (context, _, _) =>
-                    Text(clockText(scene.liveDuration), style: timeStyle),
-              ),
-            ],
-          ),
-          const SizedBox(height: Space.sm),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: analyzing ? 0 : 1),
-            duration: const Duration(milliseconds: 700),
-            curve: Curves.easeOutCubic,
-            builder: (context, fade, _) => AcousticStream(
-              scene: scene,
-              clock: controller.clock,
-              fade: fade,
+                const SizedBox(height: Space.sm),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(end: analyzing ? 0 : 1),
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, fade, _) => AcousticStream(
+                    scene: scene,
+                    clock: controller.clock,
+                    fade: fade,
+                  ),
+                ),
+              ],
             ),
           ),
           const Spacer(),
@@ -132,7 +146,9 @@ class ListeningView extends StatelessWidget {
                     tone: PillTone.primary,
                     height: 56,
                     expand: true,
-                    textStyle: TextStyles.bodyLg.copyWith(fontWeight: FontWeight.w600),
+                    textStyle: TextStyles.bodyLg.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                     onTap: controller.stopAndAnalyze,
                   ),
           ),

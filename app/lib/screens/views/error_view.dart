@@ -22,9 +22,17 @@ class ErrorView extends StatelessWidget {
           const Spacer(flex: 3),
           SessionMascot(controller: controller, width: 180),
           const SizedBox(height: Space.lg),
-          Text(error.title, style: TextStyles.headlineLg, textAlign: TextAlign.center),
+          Text(
+            error.title,
+            style: TextStyles.headlineLg,
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: Space.sm),
-          Text(error.message, style: TextStyles.bodyMd, textAlign: TextAlign.center),
+          Text(
+            error.message,
+            style: TextStyles.bodyMd,
+            textAlign: TextAlign.center,
+          ),
           if (error.detail != null) ...[
             const SizedBox(height: Space.sm),
             Text(
@@ -47,10 +55,7 @@ class ErrorView extends StatelessWidget {
             },
           ),
           const SizedBox(height: Space.sm + Space.xs),
-          PillButton(
-            label: 'Back to start',
-            onTap: controller.dismissError,
-          ),
+          PillButton(label: 'Back to start', onTap: controller.dismissError),
           const Spacer(flex: 4),
         ],
       ),
