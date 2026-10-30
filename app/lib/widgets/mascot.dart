@@ -80,14 +80,30 @@ class MascotPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final now = clock.value;
-    final center = Offset(size.width / 2, size.height / 2);
     final expression = expressionForPhase(scene.phase);
 
     final bodyW = size.width * 0.62;
     final bodyH = size.height * 0.86;
+    final standGap = bodyH * 0.015;
+    final standRadius = (bodyW * 1.15) / 2;
+
+    // The stand extends below the body, so the *visible* mascot (body +
+    // stand together) is taller than the body alone. Fit that whole
+    // composition inside the widget's own box, centered — without this,
+    // the stand quietly overflowed the box by ~25%, so every caller's
+    // layout math (how much space to leave below the mascot) was working
+    // off a size smaller than what was actually drawn. This is why
+    // tightening the gap in session_screen.dart alone couldn't fix the
+    // overlap with "Play something": the mascot itself was mis-sized.
+    final compTop = -bodyH / 2;
+    final compBottom = bodyH / 2 + standGap + standRadius;
+    final fitScale = (size.height * 0.92) / (compBottom - compTop);
+    final compCenterY = (compTop + compBottom) / 2;
+    final center = Offset(size.width / 2, size.height / 2 - compCenterY * fitScale);
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
+    canvas.scale(fitScale);
 
     // A single overall scale per expression: a slow breath at rest, a brief
     // overshoot pop the moment results arrive, or the one-time wake-in grow
@@ -119,7 +135,7 @@ class MascotPainter extends CustomPainter {
     canvas.restore();
 
     if (expression == MascotExpression.listening) {
-      _paintWhiskers(canvas, center, bodyW, bodyH, now);
+      _paintWhiskers(canvas, center, bodyW * fitScale, bodyH * fitScale, now);
     }
   }
 
