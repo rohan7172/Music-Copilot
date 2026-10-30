@@ -54,12 +54,6 @@ const _taperExponent = 1.6;
 /// own corner.
 const _topCornerRadius = 28.0;
 
-/// Plain black, for darkening tones slightly (`Color.lerp(..., _black,
-/// small)`) — spelled out directly rather than pulling in
-/// `package:flutter/material.dart` just for `Colors.black`, matching
-/// `score_canvas.dart`'s lighter-weight import (only `rendering.dart`).
-const _black = Color(0xFF000000);
-
 /// A point on the fluid's rim — the full left-edge/top-edge/right-edge
 /// perimeter, all the way down to the true bottom-left and bottom-right
 /// corners — for arc-length position [t] (0..1). Arc-length, not angle,
@@ -281,24 +275,15 @@ class FluidFieldPainter extends CustomPainter {
 
     final maxLen = math.min(size.width, size.height) * _maxLenFraction;
 
-    // One sample per rim position: the anchor (for the highlight mesh's
-    // outer vertices), the field-driven inner point, and the raw field
-    // value (for the highlight's intensity) — computed once and reused by
-    // the base fill, the highlight mesh, and the meniscus stroke below,
-    // rather than re-deriving any of it three times.
-    ({double t, Offset anchor, Offset inner, double fraction}) sampleAt(double t) {
+    Offset innerPoint(double t) {
       final anchor = edgeAnchor(t, size);
       final inward = edgeInward(t, size);
       final fraction = fieldLengthAt(t, now, scene);
       final growth = _entranceGrowthAt(now, scene.introStart, t);
       final taper = edgeTaper(t, size);
       final length = maxLen * fraction * growth * visibility * taper;
-      return (t: t, anchor: anchor, inner: anchor + inward * length, fraction: fraction);
+      return anchor + inward * length;
     }
-
-    final samples = [
-      for (var i = _rimSamples; i >= 0; i--) sampleAt(i / _rimSamples),
-    ];
 
     // Outer boundary: the screen's own rim, corner to corner, down to the
     // true bottom-left/bottom-right points — with a small fillet rounding
@@ -319,18 +304,18 @@ class FluidFieldPainter extends CustomPainter {
     // already pulled these points in to meet the outer boundary almost
     // exactly, so closing the path here naturally pinches to a point at
     // the bottom corners instead of needing a separate end cap.
-    path.lineTo(samples.first.inner.dx, samples.first.inner.dy);
-    for (var i = 1; i < samples.length; i++) {
-      final mid = Offset.lerp(samples[i - 1].inner, samples[i].inner, 0.5)!;
-      path.quadraticBezierTo(samples[i - 1].inner.dx, samples[i - 1].inner.dy, mid.dx, mid.dy);
+    final inner = <Offset>[
+      for (var i = _rimSamples; i >= 0; i--) innerPoint(i / _rimSamples),
+    ];
+    path.lineTo(inner.first.dx, inner.first.dy);
+    for (var i = 1; i < inner.length; i++) {
+      final mid = Offset.lerp(inner[i - 1], inner[i], 0.5)!;
+      path.quadraticBezierTo(inner[i - 1].dx, inner[i - 1].dy, mid.dx, mid.dy);
     }
-    path.lineTo(samples.last.inner.dx, samples.last.inner.dy);
+    path.lineTo(inner.last.dx, inner.last.dy);
     path.close();
 
-    // Base fill: unchanged from the shipped version, so the silhouette
-    // (taper into the bottom corners, filleted top corners) stays exactly
-    // as it was — nothing below this risks that geometry.
-    final basePaint = Paint()
+    final paint = Paint()
       ..shader = ui.Gradient.linear(
         Offset.zero,
         Offset(size.width, size.height),
@@ -341,61 +326,7 @@ class FluidFieldPainter extends CustomPainter {
       )
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
-    canvas.drawPath(path, basePaint);
-
-    // Highlight mesh: a second, clipped layer giving the fill a sense of
-    // light and depth instead of one flat gradient — a lighter vertex at
-    // each rim sample's inner (crest) point, brighter the taller that
-    // sample's own field value is, against a steady, slightly deepened
-    // tone at a retreated "outer" vertex. Clipped to `path`, so this mesh's
-    // own vertices don't need to precisely match the true silhouette —
-    // any mismatch at the very edge is simply hidden.
-    final meshBase = Color.lerp(FluidColors.deepPurple, _black, 0.08)!;
-    final positions = <Offset>[];
-    final colors = <Color>[];
-    for (final s in samples) {
-      positions.add(Offset.lerp(s.anchor, s.inner, 0.35)!);
-      colors.add(meshBase.withValues(alpha: _fillAlpha * visibility));
-      final highlightT = ((s.fraction - 0.35) / 0.65).clamp(0.0, 1.0);
-      positions.add(s.inner);
-      colors.add(
-        Color.lerp(FluidColors.lavender, FluidColors.highlight, highlightT)!
-            .withValues(alpha: _fillAlpha * visibility),
-      );
-    }
-    canvas.save();
-    canvas.clipPath(path);
-    canvas.drawVertices(
-      ui.Vertices(ui.VertexMode.triangleStrip, positions, colors: colors),
-      BlendMode.srcOver,
-      Paint(),
-    );
-    canvas.restore();
-
-    // Meniscus: a thin, slightly darker stroke along just the inner
-    // (liquid/air) boundary — the classic cue that separates a shape from
-    // a flat colored blob, giving the surface a defined edge.
-    final meniscusPath = Path()..moveTo(samples.first.inner.dx, samples.first.inner.dy);
-    for (var i = 1; i < samples.length; i++) {
-      final mid = Offset.lerp(samples[i - 1].inner, samples[i].inner, 0.5)!;
-      meniscusPath.quadraticBezierTo(
-        samples[i - 1].inner.dx,
-        samples[i - 1].inner.dy,
-        mid.dx,
-        mid.dy,
-      );
-    }
-    meniscusPath.lineTo(samples.last.inner.dx, samples.last.inner.dy);
-    canvas.drawPath(
-      meniscusPath,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = Color.lerp(FluidColors.deepPurple, _black, 0.3)!
-            .withValues(alpha: 0.4 * visibility),
-    );
+    canvas.drawPath(path, paint);
 
     // A small droplet, flicked inward from the rim whenever a loud moment
     // fires — see `activeDroplet`.
