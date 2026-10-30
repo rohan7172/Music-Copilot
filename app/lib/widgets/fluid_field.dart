@@ -256,14 +256,26 @@ double _noteEnvelope(double playhead, double noteStart, double noteEnd) {
 /// actually gets to play out instead of being cut off by this loop first.
 /// Looping every note and taking the max per pitch class means multiple
 /// simultaneously-sounding notes (a chord) each light up their own spike
-/// for free — no separate chord-handling needed. Falls back to the same
-/// calm ripple idle/analyzing already use whenever nothing is actively
-/// playing, so settled-but-paused reads the same as idle instead of
-/// needing a third distinct look.
+/// for free — no separate chord-handling needed.
+///
+/// Starts from the same calm `_idleAmplitude` ripple idle/analyzing
+/// already use *unconditionally* — not just as a fallback for when
+/// nothing is playing — with any sounding note only ever raising a spike
+/// *above* that baseline via `math.max`, never replacing it. An earlier
+/// version started from a literal `0.0` whenever `playingAll` was true,
+/// which meant the *entire* field's resting level silently depended on
+/// whether playback happened to be running: the instant play was
+/// pressed (or playback finished/stopped), every spike's baseline
+/// snapped between the idle ripple and flat zero in a single frame, even
+/// though nothing about that moment was supposed to be the dramatic
+/// part — the notes' own eased attacks were doing the dramatic part
+/// already. Keeping the baseline identical on both sides of that flip
+/// means there's nothing left to snap.
 double _playbackAmplitude(int k, double now, Scene scene) {
+  final base = _idleAmplitude(k, now);
   final playhead = scene.playhead;
-  if (!scene.playingAll || playhead == null) return _idleAmplitude(k, now);
-  var amp = 0.0;
+  if (!scene.playingAll || playhead == null) return base;
+  var amp = base;
   for (final note in scene.notes) {
     final pc = ((note.midiPitch % 12) + 12) % 12;
     if (pc != k || playhead < note.startTime || playhead > note.endTime + _noteRelease) continue;

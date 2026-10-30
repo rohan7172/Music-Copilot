@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../theme.dart';
+import '../widgets/score_canvas.dart' show strokeGaussianWave;
 import 'session_screen.dart';
 
 // impeccable:direction-contract
@@ -135,44 +136,32 @@ class _SplashLinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final reveal = _reveal;
     if (reveal <= 0) return;
-    final y = size.height / 2;
-    final sigma = size.width * 0.1;
-    final amplitude = size.height * 0.07;
-    final visibleX = size.width * reveal;
 
-    const samples = 90;
-    final points = <Offset>[];
-    for (var i = 0; i <= samples; i++) {
-      final x = size.width * i / samples;
-      if (x > visibleX + 0.01) break;
-      var bump = 0.0;
-      for (var j = 0; j < _noteOnsets.length; j++) {
-        final anchorX = size.width * (j + 1) / (_noteOnsets.length + 1);
-        final q = ((elapsed - _noteOnsets[j]) / _bumpDuration).clamp(0.0, 1.0);
-        if (q <= 0 || q >= 1) continue;
-        final rise = math.sin(math.pi * q);
-        final dist = x - anchorX;
-        bump += rise * math.exp(-(dist * dist) / (2 * sigma * sigma));
-      }
-      points.add(Offset(x, y - bump * amplitude));
+    // Which of the 3 chime-note bumps are currently rising/falling, and
+    // by how much — the rendering itself (Gaussian falloff per bump,
+    // summed and smoothed into one line) now lives in
+    // `widgets/score_canvas.dart`'s `strokeGaussianWave`, shared with the
+    // recording-time line so both read as the same visual idea.
+    final bumps = <({double anchorX, double rise})>[];
+    for (var j = 0; j < _noteOnsets.length; j++) {
+      final q = ((elapsed - _noteOnsets[j]) / _bumpDuration).clamp(0.0, 1.0);
+      if (q <= 0 || q >= 1) continue;
+      bumps.add((
+        anchorX: size.width * (j + 1) / (_noteOnsets.length + 1),
+        rise: math.sin(math.pi * q),
+      ));
     }
-    if (points.length < 2) return;
 
-    final path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (var i = 1; i < points.length; i++) {
-      final mid = Offset.lerp(points[i - 1], points[i], 0.5)!;
-      path.quadraticBezierTo(points[i - 1].dx, points[i - 1].dy, mid.dx, mid.dy);
-    }
-    path.lineTo(points.last.dx, points.last.dy);
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Palette.accent.withValues(alpha: 0.85)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
+    strokeGaussianWave(
+      canvas,
+      x0: 0,
+      x1: size.width,
+      baselineY: size.height / 2,
+      amplitude: size.height * 0.07,
+      sigma: size.width * 0.1,
+      bumps: bumps,
+      color: Palette.accent.withValues(alpha: 0.85),
+      reveal: reveal,
     );
   }
 

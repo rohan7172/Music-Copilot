@@ -198,37 +198,35 @@ detect more than loudness:
 
 ## The splash screen, the wake-up intro, and musical lines
 
-- The lines while actively recording are a *depiction*, not a trace: they
-  used to plot `scene.live`'s history across the growing span (loud
-  earlier, quiet now, visible left to right), which still looked like a
-  miniature waveform. Now all three strands swell together from one
-  trailing average of recent loudness (`_liveVolume`) — a level-meter
-  "something is being recorded" feel, explicitly not required to
-  represent anything that happened earlier in the clip. The settled
-  lines (after analysis) are unaffected — they still map real amplitude
-  across the clip's actual duration, since at that point there's a real
-  finished recording to represent, not just a live level
-- The waveform's literal amplitude trace is gone entirely, replaced by
-  "musical lines" (`strokeMusicalLine`, a top-level function in
-  `score_canvas.dart` rather than a method — deliberately, so both
-  `ScorePainter` and the unrelated `splash_screen.dart` can call it
-  without one importing the other's private state): 1-3 overlapping
-  strands, each a handful of sampled points joined with a light
-  quadratic smoothing (`Offset.lerp` through each pair's midpoint, the
-  same technique the deleted `_envelopePath`/`_smoothThrough` used)
-  rather than straight segments — the smoothing is what keeps a strand
-  reading as a flowing curve instead of a faceted polyline, especially
-  once real, somewhat noisy audio data is driving its amplitude
+- The lines are a *depiction*, not a trace. Two different depictions now
+  live side by side in `score_canvas.dart`, used for different moments:
+  `strokeMusicalLine` (1-3 ribbon-wobble strands, used for the idle line
+  and the settled/post-analysis lines) and `strokeGaussianWave` (one
+  soft, Gaussian-bump line, used for the recording-time line and shared
+  with the splash screen — see below). Neither tries to represent
+  `scene.live`'s history across the growing span the way an early
+  version did (loud earlier, quiet now, visible left to right) — that
+  still looked like a miniature waveform. The settled lines (after
+  analysis) are the one place that *does* map real amplitude across the
+  clip's actual duration, since at that point there's a real finished
+  recording to represent, not just a live level
+- `strokeMusicalLine`, a top-level function in `score_canvas.dart` rather
+  than a method — deliberately, so it's usable outside `ScorePainter`
+  too: 1-3 overlapping strands, each a handful of sampled points joined
+  with a light quadratic smoothing (`Offset.lerp` through each pair's
+  midpoint) rather than straight segments — the smoothing is what keeps
+  a strand reading as a flowing curve instead of a faceted polyline,
+  especially once real, somewhat noisy audio data is driving its
+  amplitude. Summed sines per strand, each at a different, unrelated
+  frequency and phase (the same "organic, never-quite-looping" trick
+  already used for the ambient drift), are what make 3 strands read as
+  independent flowing lines rather than one line traced three times
 - `smoothedAmplitude`: averaging a handful of nearby envelope samples
   instead of reading one raw point. Live microphone amplitude arrives in
   coarse, un-smoothed 40ms chunks (see `_startRecording`'s
   `onAmplitudeChanged` listener) — sampling it directly made the line
   visibly jittery; a small moving-average window fixes that without
   needing to change how the amplitude itself is captured
-- Summed sines per strand, each at a different, unrelated frequency and
-  phase (the same "organic, never-quite-looping" trick already used for
-  the ambient drift) — what makes three strands read as independent
-  flowing lines rather than one line traced three times
 - A fixed `LineColors` palette (`theme.dart`) rather than coloring the
   lines by detected harmony: an earlier version of this tried tying the
   color to `HarmonicColor`/the chord timeline, genuinely data-driven,
@@ -236,17 +234,43 @@ detect more than loudness:
   purple/green/orange directly — a reminder that "more meaningfully
   data-driven" isn't automatically "better" if it drifts from the
   agreed visual reference
-- The splash screen (`screens/splash_screen.dart`) and the home screen's
-  returning line (`ScorePainter._introReveal`, driven by
-  `Scene.introStart`) share the same `reveal` parameter on
-  `strokeMusicalLine`: a 0..1 fraction that clips the strand to a
-  growing prefix from its start — "grows in from one side" needs no
-  special path-building, just stop sampling past the revealed x
-  position. The splash plays this forward then backward (`Curves
-  .easeOutCubic` then `easeInCubic`, the literal reverse of growing in)
-  so the screen is blank again right before the cut to the home screen,
-  making a plain screen transition imperceptible instead of needing the
-  line's identity to somehow survive the `Navigator` change
+- **`strokeGaussianWave`, shared between the splash screen and the
+  recording-time line** — the splash's line was built first, as its own
+  bespoke inline code in `_SplashLinePainter`, and was genuinely the
+  better-looking of the two techniques; the recording-time line (then 3
+  `strokeMusicalLine` ribbon strands) was later rebuilt to use the
+  splash's actual technique instead of a separately-evolved one that
+  happened to look similar. The renderer (sum a list of Gaussian bumps —
+  `rise * exp(-(dist²)/(2·sigma²))` per bump, evaluated at each sampled
+  x, then quadratic-bezier-smoothed the same way `strokeMusicalLine`
+  is) now lives once, in `score_canvas.dart`; each caller only supplies
+  *where the bumps are and how tall*:
+  - the splash screen's 3 bumps are onset-triggered — anchored at fixed
+    x positions, each rising and falling once (`sin(pi · q)`) in time
+    with one of the 3 notes in `assets/sounds/chime.wav`
+  - the recording-time line's 2-3 bumps are continuous instead — their
+    x-position drifts slowly (the same "two unrelated sines" trick used
+    everywhere else in this app) and their height is scaled directly by
+    `liveVolume` (`Scene.live`'s trailing average, the same "how loud
+    right now" signal the edge fluid field's recording pulse already
+    uses) — loud input reads as pronounced, organically-drifting crests
+    and troughs; a quiet room reads as a nearly flat line. Still not
+    trying to trace the actual waveform shape, same as every other
+    "depiction" in this file — only the *height* is data-driven
+  - `reveal` (0..1, clips to a growing prefix from `x0`) is the one
+    parameter both call sites actually use the same way: the splash
+    plays it forward then backward (`Curves.easeOutCubic` then
+    `easeInCubic`, the literal reverse of growing in) so the screen is
+    blank again right before the cut to the home screen; the
+    recording-time line doesn't need it at all (its own `x1` already
+    grows as more gets recorded), so it just leaves `reveal` at its
+    default `1.0`
+- The home screen's *returning* line
+  (`ScorePainter._introReveal`, driven by `Scene.introStart`) is a
+  separate thing from the splash's line — it's `strokeMusicalLine`'s own
+  `reveal` parameter, not `strokeGaussianWave`'s, even though both
+  parameters mean the same "clip to a growing prefix" thing and both
+  ultimately trace back to the splash screen's original grow-in idea
 - `Scene.introStart` — one more timestamp in the same family as
   `settleStart`/`analyzeStart`, set once in `SessionScreen.initState`
   and read as `now - introStart` wherever the one-time "waking up"
@@ -455,6 +479,18 @@ version's pulses read as too big and too mechanically on/off):
   the fluid's bump — the label and the bump always appear and disappear
   in lockstep, rather than the label using its own separate fade timer
   that could drift out of sync
+- **A shared resting baseline removes a hidden snap**: `_playbackAmplitude`
+  used to return a literal `0.0` for every spike the instant
+  `scene.playingAll` was false→true (or the reverse), with only
+  individual notes' own eased envelopes raising it back up — so the
+  field's *resting* level itself silently depended on whether playback
+  happened to be running, and pressing play (or playback finishing)
+  changed it in one frame with no easing at all. It now always starts
+  from the same `_idleAmplitude` ripple idle/analyzing already use,
+  whether or not anything is playing, with a sounding note's envelope
+  only ever raising a spike *above* that shared floor via `math.max` —
+  nothing left to snap, because both sides of the flip already agree on
+  the resting value
 
 ## Talking to the backend
 

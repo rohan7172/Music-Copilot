@@ -237,17 +237,18 @@ double liveVolume(List<double> live) {
   return sum / window;
 }
 
-/// Strokes one flowing "musical line" strand — the shared visual language
-/// for recorded audio throughout the app (the idle/recording line, the
-/// settled lines, and the splash screen's line alike, see
-/// `screens/splash_screen.dart`). [index] selects which of the 3
-/// phase/frequency/offset variants this strand uses. [amplitudeAt] gives
-/// real loudness (0..1-ish) at a 0..1 fraction across the strand. [reveal]
-/// (0..1) clips the strand to a growing prefix from [x0] — the "grows in
-/// from one side" animation shared by the splash and the line's return to
-/// the home screen. Points are connected with a light quadratic smoothing
-/// (not straight segments) so the strand reads as a smooth curve even
-/// where the underlying amplitude data has some noise in it.
+/// Strokes one flowing "musical line" strand — used for the idle line and
+/// the settled (post-analysis) lines, the one spot in the app still using
+/// 3 overlapping ribbon-wobble strands as its visual language (recording
+/// time now uses the softer single-line [strokeGaussianWave] instead, the
+/// same technique the splash screen's line already used). [index] selects
+/// which of the 3 phase/frequency/offset variants this strand uses.
+/// [amplitudeAt] gives real loudness (0..1-ish) at a 0..1 fraction across
+/// the strand. [reveal] (0..1) clips the strand to a growing prefix from
+/// [x0] — the "grows in from one side" animation used for the line's
+/// return to the home screen. Points are connected with a light quadratic
+/// smoothing (not straight segments) so the strand reads as a smooth
+/// curve even where the underlying amplitude data has some noise in it.
 void strokeMusicalLine(
   Canvas canvas, {
   required int index,
@@ -288,6 +289,62 @@ void strokeMusicalLine(
   canvas.drawPath(path, paint);
 }
 
+/// Strokes one smooth line made of Gaussian "bumps" summed along
+/// [x0]..[x1] and connected with the same quadratic-bezier-through-
+/// midpoints smoothing [strokeMusicalLine] uses — the splash screen's own
+/// original pulse-line technique (`screens/splash_screen.dart`), factored
+/// out here so every "something is happening" line in this app reads as
+/// one consistent visual idea instead of two techniques that happened to
+/// look similar. The caller supplies the bump list ([bumps], each a
+/// position along the strand and a -1..1 `rise`, trough to crest) — the
+/// splash screen builds 3 bumps timed to its chime's note onsets, while
+/// the recording-time line (`ScorePainter._paintLiveLine`) builds bumps
+/// that drift continuously and scale with live loudness — same renderer,
+/// different bump sources.
+void strokeGaussianWave(
+  Canvas canvas, {
+  required double x0,
+  required double x1,
+  required double baselineY,
+  required double amplitude,
+  required double sigma,
+  required List<({double anchorX, double rise})> bumps,
+  required Color color,
+  double strokeWidth = 2.2,
+  double reveal = 1.0,
+}) {
+  if (reveal <= 0 || x1 <= x0) return;
+  final visibleX1 = x0 + (x1 - x0) * reveal.clamp(0.0, 1.0);
+  const samples = 90;
+  final points = <Offset>[];
+  for (var i = 0; i <= samples; i++) {
+    final x = x0 + (x1 - x0) * i / samples;
+    if (x > visibleX1 + 0.01) break;
+    var bump = 0.0;
+    for (final b in bumps) {
+      final dist = x - b.anchorX;
+      bump += b.rise * math.exp(-(dist * dist) / (2 * sigma * sigma));
+    }
+    points.add(Offset(x, baselineY - bump * amplitude));
+  }
+  if (points.length < 2) return;
+  final path = Path()..moveTo(points.first.dx, points.first.dy);
+  for (var i = 1; i < points.length; i++) {
+    final mid = Offset.lerp(points[i - 1], points[i], 0.5)!;
+    path.quadraticBezierTo(points[i - 1].dx, points[i - 1].dy, mid.dx, mid.dy);
+  }
+  path.lineTo(points.last.dx, points.last.dy);
+  canvas.drawPath(
+    path,
+    Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round,
+  );
+}
+
 class ScorePainter extends CustomPainter {
   ScorePainter(this.scene, this.clock) : super(repaint: clock);
 
@@ -307,7 +364,7 @@ class ScorePainter extends CustomPainter {
         _paintIdleLines(canvas, layout, now);
       case Phase.recording:
         _paintRecordingWarmth(canvas, layout);
-        _paintLiveLines(canvas, layout, now, 1);
+        _paintLiveLine(canvas, layout, now, 1);
       case Phase.analyzing:
         _paintRecorded(canvas, layout, now);
       case Phase.settled:
@@ -445,12 +502,22 @@ class ScorePainter extends CustomPainter {
   double _liveSpan(SceneLayout l) =>
       l.width * math.min(1, scene.liveDuration / _liveWindow);
 
-  /// Three cartoony strands while actively recording (and fading out during
-  /// the morph into the settled lines) — not trying to look like the real
-  /// waveform at all. Loudness swells all three together; each strand's own
-  /// fixed frequency (see `_ribbonFreq`) is the only nod to "pitch," a
-  /// stylized variety rather than anything actually detected live.
-  void _paintLiveLines(
+  static const _liveBumpCount = 3;
+  static const _liveSigmaFraction = 0.16;
+
+  /// The recording-time line — replaces an earlier 3-strand cartoony
+  /// ribbon with the splash screen's own soft Gaussian-pulse technique
+  /// (`strokeGaussianWave`, factored out of `screens/splash_screen.dart`
+  /// so both share one visual identity rather than two techniques that
+  /// happened to look similar). A few bumps drift and breathe
+  /// continuously — via the same "two unrelated sines" trick already used
+  /// throughout this app — rather than being onset-triggered like the
+  /// splash's three chime ripples; their *height* is scaled by
+  /// [liveVolume] (near zero in silence, taller the louder it gets), so
+  /// the line is driven by the actual recording without trying to trace
+  /// it literally — a depiction, like everything else drawn here, not a
+  /// waveform.
+  void _paintLiveLine(
     Canvas canvas,
     SceneLayout l,
     double now,
@@ -468,24 +535,29 @@ class ScorePainter extends CustomPainter {
     );
     if (span <= 0) return;
     final volume = liveVolume(scene.live);
-    for (var k = 0; k < LineColors.all.length; k++) {
-      strokeMusicalLine(
-        canvas,
-        index: k,
-        x0: l.left,
-        x1: l.left + span,
-        baselineY: l.waveY,
-        now: now,
-        amplitudeAt: (f) => volume,
-        color: LineColors.all[k].withValues(alpha: 0.75 * opacity),
-      );
-    }
+    final bumps = [
+      for (var j = 0; j < _liveBumpCount; j++)
+        (
+          anchorX: l.left + span * (0.5 + 0.42 * math.sin(now * (0.18 + j * 0.07) + j * 2.4)),
+          rise: math.sin(now * (0.9 + j * 0.3) + j * 1.7) * volume,
+        ),
+    ];
+    strokeGaussianWave(
+      canvas,
+      x0: l.left,
+      x1: l.left + span,
+      baselineY: l.waveY,
+      amplitude: l.waveAmp * 0.55,
+      sigma: span * _liveSigmaFraction,
+      bumps: bumps,
+      color: LineColors.purple.withValues(alpha: 0.85 * opacity),
+    );
     if (scene.phase == Phase.recording) {
       // The pen tip.
       canvas.drawCircle(
         Offset(l.left + span, l.waveY),
         3,
-        Paint()..color = LineColors.purple.withValues(alpha: 0.8),
+        Paint()..color = LineColors.purple.withValues(alpha: 0.8 * opacity),
       );
     }
   }
@@ -495,7 +567,7 @@ class ScorePainter extends CustomPainter {
   void _paintRecorded(Canvas canvas, SceneLayout l, double now) {
     final waveform = scene.waveform;
     if (waveform == null) {
-      _paintLiveLines(canvas, l, now, 1);
+      _paintLiveLine(canvas, l, now, 1);
       return;
     }
 
@@ -503,7 +575,7 @@ class ScorePainter extends CustomPainter {
       ((now - (scene.morphStart ?? now)) / _morphTime).clamp(0.0, 1.0),
     );
     final span = ui.lerpDouble(_liveSpan(l), l.width, morph)!;
-    if (morph < 1) _paintLiveLines(canvas, l, now, 1 - morph, spanOverride: span);
+    if (morph < 1) _paintLiveLine(canvas, l, now, 1 - morph, spanOverride: span);
 
     _paintRecordedLines(canvas, l, now, waveform, span, morph);
 

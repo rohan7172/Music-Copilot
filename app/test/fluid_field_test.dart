@@ -241,18 +241,22 @@ void main() {
       }
 
       final justAfterEnd = cField(1.05);
-      final longAfterEnd = cField(1.0 + 2.0); // well past any reasonable release window
+      const wellAfter = 1.0 + 2.0; // well past any reasonable release window
+      final longAfterEnd = cField(wellAfter);
 
+      // The resting baseline is the idle ripple, which itself varies with
+      // `now` - sample it at the exact same instant as `longAfterEnd`
+      // rather than an arbitrary other time.
       final baseline = Scene()
         ..phase = Phase.settled
         ..playingAll = true
-        ..playhead = 5.0;
-      final baselineLevel = fieldLengthAt(0 / 12, 5.0, baseline);
+        ..playhead = wellAfter;
+      final baselineLevel = fieldLengthAt(0 / 12, wellAfter, baseline);
 
       // Still elevated just after the note's literal end...
       expect(justAfterEnd, greaterThan(baselineLevel));
       // ...but back down to the resting level well after.
-      expect(longAfterEnd, closeTo(baselineLevel, 0.01));
+      expect(longAfterEnd, closeTo(baselineLevel, 0.0001));
     });
   });
 
