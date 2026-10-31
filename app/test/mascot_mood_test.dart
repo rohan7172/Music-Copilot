@@ -81,15 +81,31 @@ void main() {
     );
   });
 
-  test('the Bold card gets a curious tilt; a cadence in playback a happy beat', () {
-    expect(mood(phase: Phase.settled, settleStart: 90, boldSelected: true), MascotMood.curious);
-    expect(
-      mood(phase: Phase.settled, settleStart: 90, playing: true, cadenceAt: 99.5),
-      MascotMood.happy,
-    );
-    expect(
-      mood(phase: Phase.settled, settleStart: 90, playing: true, cadenceAt: 90),
-      MascotMood.singing,
-    );
-  });
+  test(
+    'the Bold card gets a curious tilt; a cadence in playback a happy beat',
+    () {
+      expect(
+        mood(phase: Phase.settled, settleStart: 90, boldSelected: true),
+        MascotMood.curious,
+      );
+      expect(
+        mood(
+          phase: Phase.settled,
+          settleStart: 90,
+          playing: true,
+          cadenceAt: 99.5,
+        ),
+        MascotMood.happy,
+      );
+      expect(
+        mood(
+          phase: Phase.settled,
+          settleStart: 90,
+          playing: true,
+          cadenceAt: 90,
+        ),
+        MascotMood.singing,
+      );
+    },
+  );
 }

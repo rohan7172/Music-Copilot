@@ -248,6 +248,7 @@ class Analysis {
     required this.routeNote,
     required this.suggestions,
     this.jobId,
+    this.parts = const [],
   });
 
   factory Analysis.fromJson(Map<String, dynamic> json) => Analysis(
@@ -263,6 +264,10 @@ class Analysis {
     routeNote: json['route_note'] as String?,
     suggestions: Suggestions.fromJson(json),
     jobId: (json['job'] as Map<String, dynamic>?)?['id'] as String?,
+    parts: [
+      for (final p in (json['parts'] as List<dynamic>? ?? const []))
+        SongPart.fromJson(p as Map<String, dynamic>),
+    ],
   );
 
   /// Every note Basic Pitch heard.
@@ -281,6 +286,45 @@ class Analysis {
   /// Set when the backend is still recognising a song's own chords in the
   /// background; poll it with ApiService.job.
   final String? jobId;
+
+  /// For a song: what each instrument plays and its role.
+  final List<SongPart> parts;
+}
+
+/// One instrument's part in a song: its notes, its separated audio (if
+/// the song was split into stems) and what it's doing, in plain words.
+class SongPart {
+  SongPart({
+    required this.id,
+    required this.name,
+    required this.stem,
+    required this.notes,
+    required this.role,
+    required this.detail,
+  });
+
+  factory SongPart.fromJson(Map<String, dynamic> json) => SongPart(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    stem: json['stem'] as String?,
+    notes: [
+      for (final n in json['notes'] as List<dynamic>)
+        Note.fromJson(n as Map<String, dynamic>),
+    ],
+    role: json['role'] as String,
+    detail: json['detail'] as String?,
+  );
+
+  /// "melody", "bass", "harmony" or "drums".
+  final String id;
+  final String name;
+
+  /// Which separated stem plays this part alone, or null if the song
+  /// wasn't separated.
+  final String? stem;
+  final List<Note> notes;
+  final String role;
+  final String? detail;
 }
 
 /// A background song analysis: where it's got to, and the full result

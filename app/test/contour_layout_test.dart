@@ -13,8 +13,17 @@ Note note(int midi, double start, double end) => Note(
 );
 
 void main() {
-  final notes = [note(69, 0, 1), note(72, 1, 2), note(71, 2, 3), note(67, 3.5, 4)];
-  final layout = ContourLayout(size: const Size(300, 176), notes: notes, duration: 4);
+  final notes = [
+    note(69, 0, 1),
+    note(72, 1, 2),
+    note(71, 2, 3),
+    note(67, 3.5, 4),
+  ];
+  final layout = ContourLayout(
+    size: const Size(300, 176),
+    notes: notes,
+    duration: 4,
+  );
 
   test('names MIDI pitches with octaves', () {
     expect(midiName(60), 'C4');
@@ -39,8 +48,14 @@ void main() {
       notes: [note(60, 1, 1.001)],
       duration: 10,
     );
-    expect(short.pill(0).width, greaterThanOrEqualTo(ContourLayout.minPillWidth));
-    expect(short.pillFloor, ContourLayout.labelPillWidth); // one note: room for its name
+    expect(
+      short.pill(0).width,
+      greaterThanOrEqualTo(ContourLayout.minPillWidth),
+    );
+    expect(
+      short.pillFloor,
+      ContourLayout.labelPillWidth,
+    ); // one note: room for its name
   });
 
   test('tapping a pill finds its note, empty space finds none', () {
@@ -55,20 +70,23 @@ void main() {
     expect(grid.length, lessThanOrEqualTo(5));
   });
 
-  test('the melody thread skips overlapping notes and breaks on long rests', () {
-    final runs = layout.thread(maxGap: 0.4);
-    // 0→1→2 join up; the 0.5 s rest before the last note breaks the run,
-    // leaving it alone (a one-point run is dropped).
-    expect(runs.length, 1);
-    expect(runs.single.length, 3);
+  test(
+    'the melody thread skips overlapping notes and breaks on long rests',
+    () {
+      final runs = layout.thread(maxGap: 0.4);
+      // 0→1→2 join up; the 0.5 s rest before the last note breaks the run,
+      // leaving it alone (a one-point run is dropped).
+      expect(runs.length, 1);
+      expect(runs.single.length, 3);
 
-    final stacked = ContourLayout(
-      size: const Size(300, 176),
-      notes: [note(60, 0, 2), note(64, 0, 2), note(67, 2, 3)],
-      duration: 3,
-    );
-    expect(stacked.thread().single.length, 2);
-  });
+      final stacked = ContourLayout(
+        size: const Size(300, 176),
+        notes: [note(60, 0, 2), note(64, 0, 2), note(67, 2, 3)],
+        duration: 3,
+      );
+      expect(stacked.thread().single.length, 2);
+    },
+  );
 
   test('chords sit in the ribbon above the roll, tappable by span', () {
     final spans = [(0.0, 2.0), (2.0, 4.0)];

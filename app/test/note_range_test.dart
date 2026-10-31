@@ -3,7 +3,13 @@ import 'package:music_copilot_app/models/note.dart';
 import 'package:music_copilot_app/note_range.dart';
 
 Note note(int midiPitch, double confidence) {
-  return Note(pitch: 'x', midiPitch: midiPitch, startTime: 0, endTime: 1, confidence: confidence);
+  return Note(
+    pitch: 'x',
+    midiPitch: midiPitch,
+    startTime: 0,
+    endTime: 1,
+    confidence: confidence,
+  );
 }
 
 void main() {
@@ -25,10 +31,7 @@ void main() {
     });
 
     test('a pitch far from a dense cluster is excluded and flagged, regardless of confidence', () {
-      final notes = [
-        for (var i = 0; i < 9; i++) note(62, 0.7),
-        note(85, 0.7),
-      ];
+      final notes = [for (var i = 0; i < 9; i++) note(62, 0.7), note(85, 0.7)];
       final range = fitPitchRange(notes);
 
       expect(range.hi, lessThan(85));

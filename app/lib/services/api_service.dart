@@ -112,6 +112,10 @@ class ApiService {
     return SongJob.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  /// Where one separated part of a song can be streamed from, to solo it.
+  String stemUrl(String jobId, String stem) =>
+      '$baseUrl/jobs/$jobId/stems/$stem';
+
   /// A WAV of [chords] played as a soft pad, [duration] seconds long.
   Future<Uint8List> backing(
     List<ProgressionChord> chords,

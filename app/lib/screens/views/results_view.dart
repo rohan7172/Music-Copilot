@@ -119,9 +119,20 @@ class ResultsView extends StatelessWidget {
             onChordTap: (i) => _showChord(context, i),
           ),
           const SizedBox(height: Space.md),
+          if (controller.parts.isNotEmpty) ...[
+            _PartLenses(controller: controller),
+            const SizedBox(height: Space.md),
+          ],
           ContourPanel(
             controller: controller,
             onChordTap: (i) => _showChord(context, i),
+            label: switch (controller.lens) {
+              'melody' => 'melody',
+              'bass' => 'bass line',
+              'harmony' => 'harmony',
+              'drums' => 'drums',
+              _ => controller.parts.isEmpty ? 'vocal contour' : 'melody',
+            },
           ),
           const SizedBox(height: Space.lg),
           Row(
@@ -626,6 +637,104 @@ class _GridRow extends StatelessWidget {
           ...children,
         ],
       ),
+    );
+  }
+}
+
+/// A song's parts: tap one to see its notes and role, and hear it alone.
+class _PartLenses extends StatelessWidget {
+  const _PartLenses({required this.controller});
+
+  final SessionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final part = controller.currentPart;
+    final lenses = [
+      ('mix', 'Mix'),
+      for (final p in controller.parts) (p.id, p.name),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionLabel(
+          'parts',
+          trailing: Text(
+            part?.stem != null ? 'playing alone' : 'tap to hear one alone',
+            style: TextStyles.labelSm.copyWith(
+              color: Palette.outline,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.sm),
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: lenses.length,
+            separatorBuilder: (_, _) => const SizedBox(width: Space.sm),
+            itemBuilder: (context, i) {
+              final (id, name) = lenses[i];
+              final on = id == controller.lens;
+              return Pressable(
+                onTap: () => controller.setLens(id),
+                semanticLabel: id == 'mix'
+                    ? 'Show and play the whole recording'
+                    : 'Show and play the $name alone',
+                child: AnimatedContainer(
+                  duration: Motion.quick,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  alignment: Alignment.center,
+                  decoration: ShapeDecoration(
+                    color: on ? Palette.primary : Palette.creamAlt,
+                    shape: const StadiumBorder(),
+                  ),
+                  child: Text(
+                    name,
+                    style: TextStyles.labelMd.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: on ? Palette.onPrimary : Palette.ink,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        AnimatedSize(
+          duration: Motion.settle,
+          curve: Motion.curve,
+          alignment: Alignment.topCenter,
+          child: part == null
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: Space.sm),
+                  child: Container(
+                    padding: const EdgeInsets.all(Space.md),
+                    decoration: BoxDecoration(
+                      color: Palette.container,
+                      borderRadius: BorderRadius.circular(Shape.panel),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          part.role,
+                          style: TextStyles.bodyMd.copyWith(
+                            color: Palette.onSurface,
+                          ),
+                        ),
+                        if (part.detail != null) ...[
+                          const SizedBox(height: Space.xs),
+                          Text(part.detail!, style: TextStyles.bodySm),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }

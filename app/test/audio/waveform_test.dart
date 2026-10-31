@@ -3,7 +3,13 @@ import 'package:music_copilot_app/audio/waveform.dart';
 import 'package:music_copilot_app/models/note.dart';
 
 Note note(double start, double end, {double confidence = 0.7}) {
-  return Note(pitch: 'C4', midiPitch: 60, startTime: start, endTime: end, confidence: confidence);
+  return Note(
+    pitch: 'C4',
+    midiPitch: 60,
+    startTime: start,
+    endTime: end,
+    confidence: confidence,
+  );
 }
 
 void main() {

@@ -16,9 +16,17 @@ import 'contour_layout.dart';
 /// and a scrubber. Tap a pill to hear that note; tap or drag anywhere else
 /// on the roll or the scrubber to play from there.
 class ContourPanel extends StatelessWidget {
-  const ContourPanel({super.key, required this.controller, this.onChordTap});
+  const ContourPanel({
+    super.key,
+    required this.controller,
+    this.onChordTap,
+    this.label = 'vocal contour',
+  });
 
   final SessionController controller;
+
+  /// The panel heading: which part's notes are shown.
+  final String label;
 
   /// A chord pill in the ribbon was tapped (index into the chosen
   /// progression's chords).
@@ -43,7 +51,7 @@ class ContourPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SectionLabel(
-            'vocal contour',
+            label,
             trailing: ValueListenableBuilder<double>(
               valueListenable: controller.clock,
               builder: (context, _, _) =>

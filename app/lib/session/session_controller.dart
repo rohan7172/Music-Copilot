@@ -96,6 +96,16 @@ class SessionController extends ChangeNotifier {
   String? songStage;
   double songProgress = 0;
   Timer? _songPoll;
+  String? _songJobId;
+
+  /// For a song: each instrument's part, and which one the screen is
+  /// showing ("mix" for everything together).
+  List<SongPart> parts = const [];
+  String lens = 'mix';
+  List<Note> _mixNotes = const [];
+
+  /// What the take player plays when no part is soloed.
+  String? _takeSource;
 
   /// Clock time a cadence last resolved during playback (V→I or IV→I into
   /// the final chord), for the mascot's happy beat.
@@ -191,6 +201,7 @@ class SessionController extends ChangeNotifier {
   void debugSettle(Analysis analysis, {double duration = 30}) {
     scene.waveform = Waveform(const [0.5, 0.5], duration);
     _settle(analysis);
+    if (analysis.parts.isNotEmpty) _showSong(analysis);
   }
 
   /// Any touch on the screen: keeps the mascot awake.
@@ -496,6 +507,10 @@ class SessionController extends ChangeNotifier {
     melody = const [];
     routeNote = null;
     _stopSongPoll();
+    _songJobId = null;
+    parts = const [];
+    lens = 'mix';
+    _mixNotes = const [];
     backingReady = false;
     lastCadenceAt = null;
     _lastSoundingChord = null;
@@ -505,6 +520,7 @@ class SessionController extends ChangeNotifier {
   // Songs
 
   void _pollSong(String id) {
+    _songJobId = id;
     songStage = 'Starting';
     songProgress = 0;
     _songPoll = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
@@ -543,6 +559,9 @@ class SessionController extends ChangeNotifier {
     suggestions = song.suggestions;
     melody = song.melody;
     routeNote = null;
+    parts = song.parts;
+    lens = 'mix';
+    _mixNotes = song.notes;
     selectedProgression = 0;
     perBar = 1;
     scene
@@ -553,6 +572,34 @@ class SessionController extends ChangeNotifier {
       ..settleStart = clock.value;
     _showProgression();
   }
+
+  /// Shows one instrument's part (its notes in the contour, its role) and
+  /// plays it alone from its separated stem; "mix" goes back to the whole
+  /// recording.
+  Future<void> setLens(String id) async {
+    noteInteraction();
+    if (id == lens) return;
+    lens = id;
+    final part = parts.where((p) => p.id == id).firstOrNull;
+    scene
+      ..notes = part?.notes ?? _mixNotes
+      ..selected = null;
+    _changed();
+    final job = _songJobId;
+    final source = part?.stem != null && job != null
+        ? _api.stemUrl(job, part!.stem!)
+        : _takeSource;
+    if (source == null) return;
+    final wasPlaying = scene.playingAll && _player.playing;
+    final position = _player.position;
+    await _resetPlayer();
+    await _loadPlayback(source, remote: part?.stem != null);
+    if (wasPlaying && playbackReady && lens == id) {
+      await seek(position.inMicroseconds / 1e6);
+    }
+  }
+
+  SongPart? get currentPart => parts.where((p) => p.id == lens).firstOrNull;
 
   // ---------------------------------------------------------------------
   // Suggestions
@@ -742,7 +789,8 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Playback
 
-  Future<void> _loadPlayback(String path) async {
+  Future<void> _loadPlayback(String path, {bool remote = false}) async {
+    if (!remote) _takeSource = path;
     try {
       if (!kIsWeb) {
         // The recorder leaves the session in record mode; on iOS that
@@ -751,7 +799,7 @@ class SessionController extends ChangeNotifier {
         await session.configure(const AudioSessionConfiguration.music());
       }
       final player = _player;
-      await (kIsWeb ? player.setUrl(path) : player.setFilePath(path));
+      await (kIsWeb || remote ? player.setUrl(path) : player.setFilePath(path));
       // Ignore a load that finishes after another take has started.
       if (player == _player) {
         playbackReady = true;

@@ -81,7 +81,12 @@ tabular figures.
   lanes, dashed melody thread, playhead with time tag, scrubber. Pills
   carry their name when every note has room; otherwise only the sounding
   note is labelled. Tap a pill to hear it; tap elsewhere to play from there.
-- **Chord chips** — horizontal row, name + roman numeral, active filled.
+- **Progression cards** — Original (recognised in a song, "from the
+  recording"), Safe, Colourful, Bold ("AI idea · checked" when Gemini's);
+  chord pills tinted by fit, faded "maybe" when recognition was unsure.
+- **Parts lenses** (songs) — Mix · Melody · Bass · Harmony · Drums chips;
+  the chosen part's role card, its notes in the contour, and its stem
+  playing alone.
 
 ## Screens (`app/lib/screens/`)
 

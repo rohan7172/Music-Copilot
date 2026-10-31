@@ -557,6 +557,37 @@ chord tones).
   releases removed — an example of a dependency's dependency setting your
   ceiling.
 
+## What each instrument is doing (`backend/app/songs/roles.py`)
+
+A song's transcription used to be one wall of every note. Now each
+separated stem becomes a *part* with its own notes and a plain sentence
+about its role, measured, not guessed:
+
+- **Melody** — the share of its time on notes of the current chord
+  (high: it sits "inside" the harmony; lower: passing and colour notes
+  give it movement), and its range as the 5th–95th percentile of pitches
+  so a few stray notes leaking into the vocal stem don't stretch it.
+- **Bass** — how often its lowest note at a bar's first beat is the
+  chord's root: usually high, because the bass is what tells your ear
+  which chord you're on; lower means a walking line or inversions.
+- **Harmony** (guitars, keys) — *how* it plays the chords, from how its
+  notes start: many notes starting within 50 ms of each other = strummed
+  block chords; one after another = arpeggios; few long notes = pads.
+- **Drums** — hits per bar from the drum stem's *onset envelope* (how
+  suddenly the sound gets louder), and whether the loudest hits fall on
+  beats 2 and 4 (a backbeat) or on beat 1.
+- **A real-data lesson**: the first drum count said "1 hit a bar". librosa
+  scales the onset envelope to its single loudest moment, so one crash
+  anywhere in 90 seconds pushed every ordinary hit under the threshold.
+  Scaling to the 99th percentile instead (robust to a few outliers) found
+  ~4 hits a second, matching what you hear. Percentiles instead of
+  min/max is the same idea as the melody range above.
+- **Soloing a part**: the stems are saved and served from
+  `/jobs/{id}/stems/{name}`; choosing a lens in the app swaps the player to
+  that stem's URL and seeks to the same position. The endpoint only
+  accepts the four known stem names and an alphanumeric job id, so a
+  request can't reach other files (no path traversal).
+
 ## Loading model weights safely (`backend/app/songs/btc.py`)
 
 The song path uses pretrained models downloaded from other people's
@@ -621,8 +652,8 @@ repositories. How you load their files matters as much as what they do.
 
 ## Forward-looking (not built yet)
 
-- **Instrument roles**: showing each stem's part (melody, bass line,
-  harmony style) instead of every note at once — Part 3 of the spec
+- **Zooming the contour** for long clips, and chord-by-chord comparison
+  of the original progression with the alternatives
 - **Style presets**: the corpus prior's blend and genre slices tuned per
   style (pop, folk, jazz)
 - **Distinct scale/mode detection** — today "key" and "scale" are the same

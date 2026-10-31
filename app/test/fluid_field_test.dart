@@ -18,16 +18,19 @@ void main() {
   const size = Size(400, 800);
 
   group('edgeAnchor', () {
-    test('spans the full rim, corner to corner, down to the true bottom corners', () {
-      final start = edgeAnchor(0, size);
-      expect(start, const Offset(0, 800)); // true bottom-left corner
+    test(
+      'spans the full rim, corner to corner, down to the true bottom corners',
+      () {
+        final start = edgeAnchor(0, size);
+        expect(start, const Offset(0, 800)); // true bottom-left corner
 
-      final topMid = edgeAnchor(0.5, size);
-      expect(topMid.dy, 0); // somewhere along the top edge
+        final topMid = edgeAnchor(0.5, size);
+        expect(topMid.dy, 0); // somewhere along the top edge
 
-      final end = edgeAnchor(1, size);
-      expect(end, const Offset(400, 800)); // true bottom-right corner
-    });
+        final end = edgeAnchor(1, size);
+        expect(end, const Offset(400, 800)); // true bottom-right corner
+      },
+    );
 
     test('clamps t outside 0..1', () {
       expect(edgeAnchor(-1, size), edgeAnchor(0, size));
@@ -62,7 +65,10 @@ void main() {
 
   group('fieldLengthAt', () {
     test('always stays within 0..1 across a spread of inputs', () {
-      final scenes = [Scene()..phase = Phase.idle, Scene()..phase = Phase.recording];
+      final scenes = [
+        Scene()..phase = Phase.idle,
+        Scene()..phase = Phase.recording,
+      ];
       for (final scene in scenes) {
         for (var t = 0.0; t <= 1.0; t += 0.05) {
           for (var now = 0.0; now < 20.0; now += 0.37) {
@@ -72,46 +78,55 @@ void main() {
       }
     });
 
-    test('never drops to exactly zero, so the rim never shows a literal gap', () {
-      final idle = Scene()..phase = Phase.idle;
-      for (var t = 0.0; t <= 1.0; t += 0.05) {
-        for (var now = 0.0; now < 20.0; now += 0.37) {
-          expect(fieldLengthAt(t, now, idle), greaterThan(0.0));
+    test(
+      'never drops to exactly zero, so the rim never shows a literal gap',
+      () {
+        final idle = Scene()..phase = Phase.idle;
+        for (var t = 0.0; t <= 1.0; t += 0.05) {
+          for (var now = 0.0; now < 20.0; now += 0.37) {
+            expect(fieldLengthAt(t, now, idle), greaterThan(0.0));
+          }
         }
-      }
-    });
+      },
+    );
 
-    test('recording in silence is completely stagnant: motionless over time', () {
-      final silent = Scene()..phase = Phase.recording; // live stays empty
+    test(
+      'recording in silence is completely stagnant: motionless over time',
+      () {
+        final silent = Scene()..phase = Phase.recording; // live stays empty
 
-      // The static Gaussian-overlap pattern around the rim can still vary a
-      // little from point to point (every spike shares the same amplitude,
-      // but centers and gaps don't contribute identically) - what matters
-      // for "stagnant" is that nothing *moves*: the same rim position gives
-      // the exact same value no matter when it's sampled.
-      for (var t = 0.0; t <= 1.0; t += 0.1) {
-        final early = fieldLengthAt(t, 3.0, silent);
-        final muchLater = fieldLengthAt(t, 30.0, silent);
-        expect(muchLater, early);
-      }
-    });
-
-    test('louder live volume produces a noticeably taller field than silence', () {
-      final loud = Scene()
-        ..phase = Phase.recording
-        ..live.addAll(List.filled(6, 0.85));
-      final silent = Scene()..phase = Phase.recording;
-
-      double maxOverRim(Scene scene, double now) {
-        var m = 0.0;
-        for (var t = 0.0; t <= 1.0; t += 0.01) {
-          m = math.max(m, fieldLengthAt(t, now, scene));
+        // The static Gaussian-overlap pattern around the rim can still vary a
+        // little from point to point (every spike shares the same amplitude,
+        // but centers and gaps don't contribute identically) - what matters
+        // for "stagnant" is that nothing *moves*: the same rim position gives
+        // the exact same value no matter when it's sampled.
+        for (var t = 0.0; t <= 1.0; t += 0.1) {
+          final early = fieldLengthAt(t, 3.0, silent);
+          final muchLater = fieldLengthAt(t, 30.0, silent);
+          expect(muchLater, early);
         }
-        return m;
-      }
+      },
+    );
 
-      expect(maxOverRim(loud, 5.0), greaterThan(maxOverRim(silent, 5.0)));
-    });
+    test(
+      'louder live volume produces a noticeably taller field than silence',
+      () {
+        final loud = Scene()
+          ..phase = Phase.recording
+          ..live.addAll(List.filled(6, 0.85));
+        final silent = Scene()..phase = Phase.recording;
+
+        double maxOverRim(Scene scene, double now) {
+          var m = 0.0;
+          for (var t = 0.0; t <= 1.0; t += 0.01) {
+            m = math.max(m, fieldLengthAt(t, now, scene));
+          }
+          return m;
+        }
+
+        expect(maxOverRim(loud, 5.0), greaterThan(maxOverRim(silent, 5.0)));
+      },
+    );
 
     test('field magnitude scales up with volume', () {
       final quiet = Scene()
@@ -207,8 +222,14 @@ void main() {
 
       final cT = 0 / 12;
       final eT = 4 / 12;
-      expect(fieldLengthAt(cT, 1.0, scene), greaterThan(fieldLengthAt(cT, 1.0, nothingPlaying)));
-      expect(fieldLengthAt(eT, 1.0, scene), greaterThan(fieldLengthAt(eT, 1.0, nothingPlaying)));
+      expect(
+        fieldLengthAt(cT, 1.0, scene),
+        greaterThan(fieldLengthAt(cT, 1.0, nothingPlaying)),
+      );
+      expect(
+        fieldLengthAt(eT, 1.0, scene),
+        greaterThan(fieldLengthAt(eT, 1.0, nothingPlaying)),
+      );
     });
 
     test('a note does not pulse before its own start time', () {
@@ -226,38 +247,44 @@ void main() {
         ..playingAll = true
         ..playhead = 0.1;
 
-      expect(fieldLengthAt(0 / 12, 0.1, scene), fieldLengthAt(0 / 12, 0.1, baseline));
+      expect(
+        fieldLengthAt(0 / 12, 0.1, scene),
+        fieldLengthAt(0 / 12, 0.1, baseline),
+      );
     });
 
-    test('a note keeps pulsing briefly past its own end, then settles back down', () {
-      final scene = Scene()
-        ..phase = Phase.settled
-        ..playingAll = true
-        ..notes = [_note(60, 0.0, 1.0)]; // ends at playhead 1.0
+    test(
+      'a note keeps pulsing briefly past its own end, then settles back down',
+      () {
+        final scene = Scene()
+          ..phase = Phase.settled
+          ..playingAll = true
+          ..notes = [_note(60, 0.0, 1.0)]; // ends at playhead 1.0
 
-      double cField(double playhead) {
-        scene.playhead = playhead;
-        return fieldLengthAt(0 / 12, playhead, scene);
-      }
+        double cField(double playhead) {
+          scene.playhead = playhead;
+          return fieldLengthAt(0 / 12, playhead, scene);
+        }
 
-      final justAfterEnd = cField(1.05);
-      const wellAfter = 1.0 + 2.0; // well past any reasonable release window
-      final longAfterEnd = cField(wellAfter);
+        final justAfterEnd = cField(1.05);
+        const wellAfter = 1.0 + 2.0; // well past any reasonable release window
+        final longAfterEnd = cField(wellAfter);
 
-      // The resting baseline is the idle ripple, which itself varies with
-      // `now` - sample it at the exact same instant as `longAfterEnd`
-      // rather than an arbitrary other time.
-      final baseline = Scene()
-        ..phase = Phase.settled
-        ..playingAll = true
-        ..playhead = wellAfter;
-      final baselineLevel = fieldLengthAt(0 / 12, wellAfter, baseline);
+        // The resting baseline is the idle ripple, which itself varies with
+        // `now` - sample it at the exact same instant as `longAfterEnd`
+        // rather than an arbitrary other time.
+        final baseline = Scene()
+          ..phase = Phase.settled
+          ..playingAll = true
+          ..playhead = wellAfter;
+        final baselineLevel = fieldLengthAt(0 / 12, wellAfter, baseline);
 
-      // Still elevated just after the note's literal end...
-      expect(justAfterEnd, greaterThan(baselineLevel));
-      // ...but back down to the resting level well after.
-      expect(longAfterEnd, closeTo(baselineLevel, 0.0001));
-    });
+        // Still elevated just after the note's literal end...
+        expect(justAfterEnd, greaterThan(baselineLevel));
+        // ...but back down to the resting level well after.
+        expect(longAfterEnd, closeTo(baselineLevel, 0.0001));
+      },
+    );
   });
 
   group('reachScale', () {
@@ -273,18 +300,21 @@ void main() {
       expect(reachScale(Scene()..phase = Phase.analyzing, 5.0), lessThan(1.0));
     });
 
-    test('eases from full reach down toward the settled scale across analyzing', () {
-      final scene = Scene()
-        ..phase = Phase.analyzing
-        ..analyzeStart = 10.0;
-      final justStarted = reachScale(scene, 10.01);
-      final midway = reachScale(scene, 10.3);
-      final wellAfter = reachScale(scene, 20.0);
+    test(
+      'eases from full reach down toward the settled scale across analyzing',
+      () {
+        final scene = Scene()
+          ..phase = Phase.analyzing
+          ..analyzeStart = 10.0;
+        final justStarted = reachScale(scene, 10.01);
+        final midway = reachScale(scene, 10.3);
+        final wellAfter = reachScale(scene, 20.0);
 
-      expect(justStarted, closeTo(1.0, 0.05));
-      expect(midway, lessThan(justStarted));
-      expect(wellAfter, lessThan(midway));
-    });
+        expect(justStarted, closeTo(1.0, 0.05));
+        expect(midway, lessThan(justStarted));
+        expect(wellAfter, lessThan(midway));
+      },
+    );
 
     test('settles at a constant, smaller reach once truly settled', () {
       final settled = reachScale(Scene()..phase = Phase.settled, 5.0);
