@@ -22,11 +22,13 @@ from app.harmoniser import reasons, scoring
 from app.harmoniser.vocab import Key, chord_in_key
 from app.melody import extract_melody
 from app.pipeline import suggest
-from app.songs import btc, decode, models
+from app.songs import btc, decode, models, roles
 from app.timing import BeatGrid
 
 SONG_LIMIT = 90.0
 _RATE = 44100
+STEM_RATE = 22050  # stems are saved at this rate: Basic Pitch's own, and small to stream
+STEMS = ("vocals", "bass", "other", "drums")
 
 Transcribe = Callable[[str], list[dict]]
 Progress = Callable[[str, float], None]
@@ -119,16 +121,24 @@ def analyze_song(
     route: str,
     progress: Progress = lambda stage, fraction: None,
     use_llm: bool = True,
+    work_dir: Path | None = None,
 ) -> dict:
     y, _ = librosa.load(audio_path, sr=_RATE, mono=False, duration=SONG_LIMIT)
     stereo = np.stack([y, y]) if y.ndim == 1 else y[:2]
     mono = stereo.mean(axis=0)
     end = len(mono) / _RATE
-    work = Path(tempfile.mkdtemp(prefix="song_"))
+    work = work_dir or Path(tempfile.mkdtemp(prefix="song_"))
+    work.mkdir(parents=True, exist_ok=True)
 
+    stem_files: dict[str, str] = {}
     if route == "full_mix":
         progress("Separating the instruments", 0.05)
         stems = models.separate(stereo, _RATE)
+        # Saved mono at 22.05 kHz: what Basic Pitch reads, and what the app
+        # streams when you solo a part.
+        for name in STEMS:
+            audio = librosa.resample(stems[name], orig_sr=_RATE, target_sr=STEM_RATE)
+            stem_files[name] = _write(work / f"{name}.wav", audio, STEM_RATE)
     else:
         stems = {}
 
@@ -144,17 +154,28 @@ def analyze_song(
     flags = [bool(np.any(np.abs(downbeat_times - b) < 0.07)) for b in beat_times]
 
     progress("Following the bass", 0.7)
-    bass_notes = transcribe(_write(work / "bass.wav", stems["bass"], _RATE)) if "bass" in stems else []
+    bass_notes = transcribe(stem_files["bass"]) if "bass" in stem_files else []
     bass_pcs = bass_per_beat(bass_notes, beat_times, end) if bass_notes else None
     path, confidence = decode.decode(emissions, flags, key, bass_pcs)
     segs = decode.segments(path, confidence, beat_times, end)
 
     progress("Finding the melody", 0.8)
-    if "vocals" in stems:
-        melody_notes = transcribe(_write(work / "vocals.wav", stems["vocals"], _RATE))
-    else:
-        melody_notes = transcribe(audio_path)
+    all_notes = transcribe(audio_path) if "vocals" not in stem_files else []
+    melody_notes = transcribe(stem_files["vocals"]) if "vocals" in stem_files else all_notes
     melody = extract_melody(melody_notes)
+
+    progress("Hearing what each instrument plays", 0.86)
+    downbeats = [float(d) for d in downbeat_times]
+    parts = [_part("melody", "Melody", "vocals" if stem_files else None, melody, roles.melody_role(melody, segs))]
+    if "bass" in stem_files:
+        parts.append(_part("bass", "Bass", "bass", bass_notes, roles.bass_role(bass_notes, segs, downbeats)))
+    harmony_notes = transcribe(stem_files["other"]) if "other" in stem_files else all_notes
+    parts.append(_part("harmony", "Harmony", "other" if stem_files else None, harmony_notes, roles.harmony_role(harmony_notes)))
+    if "drums" in stem_files:
+        hits, strengths = _drum_hits(stems["drums"])
+        parts.append(
+            _part("drums", "Drums", "drums", [], roles.drums_role(hits, [float(b) for b in beat_times], downbeats, strengths, 4))
+        )
 
     progress("Suggesting alternatives", 0.92)
     grid = grid_from_beats(beat_times, downbeat_times)
@@ -174,7 +195,33 @@ def analyze_song(
         "insight": _song_insight(segs, key),
         "duration": end,
         "clipped": end >= SONG_LIMIT - 0.5,
+        "parts": parts,
+        "stems": sorted(stem_files),
     }
+
+
+def _part(part_id: str, name: str, stem: str | None, notes: list[dict], role: dict) -> dict:
+    return {
+        "id": part_id,
+        "name": name,
+        "stem": stem,
+        "notes": notes,
+        "role": role["summary"],
+        "detail": role.get("detail"),
+    }
+
+
+def _drum_hits(drums: np.ndarray) -> tuple[list[float], list[float]]:
+    """Drum hit times and how strong each is, from the drum stem's onset
+    envelope (how suddenly the sound gets louder)."""
+    envelope = librosa.onset.onset_strength(y=drums, sr=_RATE)
+    # Scaled to its 99th percentile, not its maximum: librosa's default
+    # scales to the single loudest moment, so one big crash anywhere in the
+    # clip pushed every ordinary hit under the detection threshold.
+    scaled = np.minimum(envelope / max(float(np.percentile(envelope, 99)), 1e-6), 1.0)
+    frames = librosa.onset.onset_detect(onset_envelope=scaled, sr=_RATE, normalize=False, delta=0.12)
+    times = librosa.frames_to_time(frames, sr=_RATE)
+    return [float(t) for t in times], [float(scaled[f]) for f in frames]
 
 
 def _song_insight(segs: list[dict], key: Key) -> str | None:

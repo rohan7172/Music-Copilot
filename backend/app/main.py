@@ -10,6 +10,7 @@ from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import Model, predict
 from fastapi import Body, FastAPI, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app import synth
 from app.songs import jobs
@@ -108,7 +109,12 @@ async def analyze(
             from app.songs.pipeline import analyze_song
 
             route = result["route"]
-            job_id = jobs.start(lambda progress: analyze_song(audio_path, transcribe, route, progress))
+            job_id = jobs.new_id()
+            job_dir = _JOBS_DIR / job_id
+            job_id = jobs.start(
+                lambda progress: analyze_song(audio_path, transcribe, route, progress, work_dir=job_dir),
+                job_id,
+            )
             result["job"] = {"id": job_id, "status": "running"}
             result["route_note"] = "Listening to each instrument to find the song's own chords…"
     return result
@@ -151,6 +157,23 @@ def transcribe(audio_path: str) -> list[dict]:
     ]
     notes.sort(key=lambda n: n["start_time"])
     return without_overtones(notes)
+
+
+_JOBS_DIR = Path(tempfile.gettempdir()) / "music_copilot_jobs"
+
+
+@app.get("/jobs/{job_id}/stems/{name}")
+def stem(job_id: str, name: str) -> FileResponse:
+    """One separated part of a song (vocals, bass, other, drums) as a WAV,
+    for soloing it in the app."""
+    from app.songs.pipeline import STEMS
+
+    if name not in STEMS or not job_id.isalnum():
+        raise HTTPException(status_code=404, detail="No such stem")
+    path = _JOBS_DIR / job_id / f"{name}.wav"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="No such stem (the job may have expired)")
+    return FileResponse(path, media_type="audio/wav")
 
 
 @app.get("/jobs/{job_id}")

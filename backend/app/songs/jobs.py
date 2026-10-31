@@ -15,10 +15,14 @@ _lock = threading.Lock()
 _KEEP_SECONDS = 3600
 
 
-def start(work: Callable[[Callable[[str, float], None]], dict]) -> str:
+def new_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def start(work: Callable[[Callable[[str, float], None]], dict], job_id: str | None = None) -> str:
     """Runs `work(progress)` in the background and returns the job id.
     `work` reports progress by calling progress(stage, fraction)."""
-    job_id = uuid.uuid4().hex[:12]
+    job_id = job_id or new_id()
     with _lock:
         _forget_old()
         _jobs[job_id] = {"status": "running", "stage": "Starting", "progress": 0.0, "started": time.time()}
