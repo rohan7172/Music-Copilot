@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import traceback
 import tempfile
 import wave
 from contextlib import asynccontextmanager
@@ -11,12 +12,14 @@ from basic_pitch.inference import Model, predict
 from fastapi import Body, FastAPI, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from app import synth
 from app.songs import jobs
 from app.harmony import without_overtones
 from app.notes import midi_to_note_name
-from app.melody import percussive_share
+from app.melody import classify_input, percussive_share_samples
+from app.onset import music_start_samples, trim_notes
 from app.pipeline import analyze_notes, suggest
 from app.timing import BeatGrid
 
@@ -77,7 +80,7 @@ async def analyze(
     file: UploadFile,
     bpm: float | None = Form(None),
     first_beat: float | None = Form(None),
-    meter: int = Form(4),
+    meter: int | None = Form(None),
 ) -> dict:
     """Transcribes the audio and suggests progressions for its melody.
     `bpm` and `first_beat` (seconds) come from the app's click, when one was
@@ -91,32 +94,77 @@ async def analyze(
         tmp.write(await file.read())
         audio_path = tmp.name
 
+    # The heavy work (transcription, beats, chord recognition) runs in a
+    # worker thread: done directly in this async handler it would block
+    # the event loop, stalling every other request (job polling included).
+    return await run_in_threadpool(_analyze_file, audio_path, bpm, first_beat, meter)
+
+
+def _analyze_file(audio_path: str, bpm: float | None, first_beat: float | None, meter: int | None) -> dict:
+    import librosa
+
     clipped = _clip_long_audio(audio_path)
     if clipped:
         audio_path = clipped
     notes = transcribe(audio_path)
-    result = analyze_notes(
-        notes, bpm=bpm, first_beat=first_beat, meter=meter, percussive=percussive_share(audio_path)
-    )
+    # Loaded once for both measurements, rather than once each.
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=_MAX_SECONDS)
+        start = music_start_samples(y, sr)
+        percussive = percussive_share_samples(y, sr)
+    except Exception:
+        start, percussive = 0.0, 0.0
+    route = classify_input(trim_notes(notes, start), percussive)
 
-    # A song, or chords on one instrument: the quick melody-based answer
-    # comes back now, and the real progression follows from a background
-    # job the app polls (GET /jobs/{id}).
-    if result["route"] in ("full_mix", "polyphonic"):
+    # Chords on one instrument, or a song: recognise the chords from the
+    # audio now (beats + BTC + beat-synchronous decoding, no separation:
+    # a second or two), so the first answer is what was actually played,
+    # not guesses built from the top line. A song then also gets a
+    # background job that separates the parts (vocal melody, bass, stems)
+    # and refines it; the app polls GET /jobs/{id}.
+    song = route in ("full_mix", "polyphonic")
+    if song:
         from app.songs import models
 
-        if models.available():
-            from app.songs.pipeline import analyze_song
+        song = models.available()
+    result = None
+    if song:
+        from app.songs.pipeline import analyze_song
 
-            route = result["route"]
-            job_id = jobs.new_id()
-            job_dir = _JOBS_DIR / job_id
-            job_id = jobs.start(
-                lambda progress: analyze_song(audio_path, transcribe, route, progress, work_dir=job_dir),
-                job_id,
+        try:
+            quick = analyze_song(
+                audio_path,
+                transcribe,
+                "polyphonic",
+                notes=notes,
+                start=start,
+                # A full mix's job re-harmonises from the vocal stem, so its
+                # quick answer needs only the recognised chords.
+                alternatives=route == "polyphonic",
             )
-            result["job"] = {"id": job_id, "status": "running"}
-            result["route_note"] = "Listening to each instrument to find the song's own chords…"
+            result = {**quick, "route": route, "route_note": None}
+        except Exception:
+            # No steady beat, say: fall back to the melody-based answer.
+            traceback.print_exc()
+    if result is None:
+        # A melody take, or the fallback: harmonise the top line. Only done
+        # when needed, since for a song the quick recognition replaces it.
+        result = analyze_notes(
+            notes, bpm=bpm, first_beat=first_beat, meter=meter, percussive=percussive, music_start=start
+        )
+    if song and route == "full_mix":
+        from app.songs.pipeline import analyze_song
+
+        job_id = jobs.new_id()
+        job_dir = _JOBS_DIR / job_id
+        job_id = jobs.start(
+            lambda progress: analyze_song(
+                audio_path, transcribe, route, progress, work_dir=job_dir, start=start
+            ),
+            job_id,
+        )
+        result["job"] = {"id": job_id, "status": "running"}
+        result["route_note"] = "Listening to each instrument to fill in the melody and bass…"
     return result
 
 

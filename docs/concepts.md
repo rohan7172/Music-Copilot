@@ -456,6 +456,47 @@ chord corpus, and a search. That keeps every suggestion explainable.
   justify it. Roman numerals and functions (tonic / predominant /
   dominant, secondary dominants, borrowed chords) come from `vocab.py`.
 
+## Getting the timing right (`backend/app/onset.py`, `timing.py`)
+
+- **Where the music starts** (`onset.music_start_samples`): people press
+  record, then breathe or settle the phone, and Basic Pitch hears that
+  lead-in's mains hum as confident-looking low notes, which then became
+  the melody's first note and dragged the beat grid and first chord into
+  the silence. The fix finds the first moment clearly louder than the
+  recording's own background (above a 70 Hz high-pass, where hum lives)
+  that *stays* up for 0.12 s (so a tap isn't music), and drops notes
+  before it. Melody notes below E2 also need high confidence: nobody
+  sings that low.
+- **The background is the quietest stretch, not a percentile.** A first
+  version used the 10th percentile of the whole clip as the background,
+  which works on a 4-second test but misses a 2-second lead-in in a
+  90-second song (2% of the frames, so the percentile lands inside the
+  music). A lightly smoothed minimum doesn't care how long the song is.
+- **Windowed energy with a cumulative sum**: the energy of every window
+  is `c[i+frame] − c[i]` on one running sum of squares, O(N), instead of
+  building a frames × window matrix (which took ~330 MB and 3 s for 90 s
+  of audio; this takes ~0.05 s).
+- **Refining the tempo**: the tempogram is usually a percent or two out,
+  and over a 20-second take that slides the bar lines a whole beat off
+  the tune. Tempo (±5%) and beat phase are now searched *together* for
+  the pair that puts the most note weight on beats, in one vectorised
+  numpy grid (periods × phases × notes).
+- **3/4 or 4/4** (`timing._detect_meter`): long notes and phrase starts
+  recur every bar, so the per-beat accent pattern correlates with itself
+  at a lag of one bar — 3 beats for a waltz, 4 for almost everything else
+  (autocorrelation). Only detected when no click was used.
+- **Not blocking the server** (`main.py`): FastAPI runs `async def`
+  handlers on one event loop; heavy CPU/GPU work inside one freezes every
+  other request (job polling included) until it finishes.
+  `run_in_threadpool` moves the work to a worker thread so the loop stays
+  free.
+- **Don't do work twice**: one upload used to be loaded from disk four
+  times and transcribed twice, and harmonised even when the result was
+  about to be replaced. Now the audio is loaded once for both
+  measurements, Basic Pitch's notes are passed along, and a song's first
+  answer skips alternatives its background job recomputes from the vocals
+  anyway (first answer ~10 s → ~6 s).
+
 ## An LLM proposes, the engine decides (`backend/app/llm.py`)
 
 - The Bold option comes from Gemini: it gets a compact, factual summary of

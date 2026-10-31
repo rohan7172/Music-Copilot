@@ -77,8 +77,17 @@ def build_slots(melody: list[dict], grid: BeatGrid, per_bar: int = 1) -> list[Sl
     default, two for a half-bar harmonic rhythm."""
     if not melody:
         return []
-    first_bar = grid.bar_index(melody[0]["start_time"])
-    last_bar = grid.bar_index(melody[-1]["end_time"] - 1e-3)
+    # A first note sung a hair before the bar line belongs to that bar, not
+    # to a whole empty bar of chord in front of it.
+    first_bar = grid.bar_index(melody[0]["start_time"] + 0.2 * grid.beat_length)
+    # Likewise a last note that rings a moment past the bar line doesn't
+    # earn a bar of its own -- but a last note that *starts* in a bar always
+    # keeps it, however short it is.
+    last = melody[-1]
+    last_bar = max(
+        first_bar,
+        grid.bar_index(max(last["start_time"] + 1e-3, last["end_time"] - 0.3 * grid.beat_length)),
+    )
     span = grid.bar_length / per_bar
     slots = []
     for bar in range(first_bar, last_bar + 1):

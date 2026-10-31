@@ -95,17 +95,69 @@ def grid_from_click(bpm: float, first_beat: float, meter: int = 4) -> BeatGrid:
     return BeatGrid(bpm=bpm, downbeat=first_beat, meter=meter, guessed=False)
 
 
-def estimate_grid(melody: list[dict], meter: int = 4) -> BeatGrid:
-    """Tempo, beat phase and downbeat estimated from the melody's onsets."""
+def estimate_grid(melody: list[dict], meter: int | None = None) -> BeatGrid:
+    """Tempo, beat phase, meter (3 or 4, unless given) and downbeat
+    estimated from the melody's onsets."""
     if len(melody) < 2:
         start = melody[0]["start_time"] if melody else 0.0
-        return BeatGrid(bpm=90.0, downbeat=start, meter=meter)
+        return BeatGrid(bpm=90.0, downbeat=start, meter=meter or 4)
 
     bpm = _estimate_tempo(melody)
-    beat = 60.0 / bpm
-    phase = _best_phase(melody, beat)
+    beat, phase = _refine_beat(melody, 60.0 / bpm)
+    meter = meter or _detect_meter(melody, beat, phase)
     downbeat = _best_downbeat(melody, beat, phase, meter)
-    return BeatGrid(bpm=bpm, downbeat=downbeat, meter=meter)
+    return BeatGrid(bpm=60.0 / beat, downbeat=downbeat, meter=meter)
+
+
+def _alignment(melody: list[dict], periods: np.ndarray, phases_frac: np.ndarray) -> np.ndarray:
+    """How well onsets sit on beats for every (period, phase) pair:
+    (len(periods), len(phases_frac)), phase given as a fraction of a beat."""
+    t = np.array([n["start_time"] for n in melody])
+    w = np.array([0.3 + _weight(n) for n in melody])
+    pos = (t[None, None, :] / periods[:, None, None]) - phases_frac[None, :, None]
+    off = pos - np.round(pos)
+    return (w * np.exp(-((off / 0.08) ** 2))).sum(axis=2)
+
+
+def _refine_beat(melody: list[dict], beat: float) -> tuple[float, float]:
+    """The tempogram's tempo is close but rarely exact, and over a
+    20-second take a 2% error slides the grid a whole beat off the tune by
+    the end. Searches tempo within ±5% and phase together for the pair that
+    puts the most note weight on beats. Returns (beat length, phase)."""
+    periods = beat * np.linspace(0.95, 1.05, 101)
+    fracs = np.arange(64) / 64
+    score = _alignment(melody, periods, fracs)
+    # Prefer staying near the tempogram's answer when scores tie.
+    score *= 1 - 0.03 * np.linspace(-1, 1, len(periods))[:, None] ** 2
+    i, j = np.unravel_index(int(score.argmax()), score.shape)
+    best = float(periods[i])
+    return best, float(fracs[j] * best)
+
+
+def _detect_meter(melody: list[dict], beat: float, phase: float) -> int:
+    """3 or 4 beats to the bar, from how the melody's accents repeat: long
+    notes and phrase starts recur every bar, so the per-beat accent pattern
+    correlates with itself at a lag of one bar. A waltz repeats every 3
+    beats, almost everything else every 4 (or 2, which 4 covers)."""
+    first = melody[0]["start_time"]
+    count = int((melody[-1]["end_time"] - first) / beat) + 2
+    if count < 12:
+        return 4  # too short to tell; 4/4 is the safe bet
+    accent = np.zeros(count)
+    for n in melody:
+        k = int(round((n["start_time"] - phase) / beat - math.floor((first - phase) / beat)))
+        if 0 <= k < count:
+            accent[k] += _weight(n) + 0.1
+    a = accent - accent.mean()
+
+    def corr(lag: int) -> float:
+        x, y = a[:-lag], a[lag:]
+        d = math.sqrt(float((x * x).sum() * (y * y).sum())) or 1.0
+        return float((x * y).sum()) / d
+
+    three = (corr(3) + corr(6)) / 2
+    four = (corr(4) + corr(8)) / 2
+    return 3 if three > four + 0.08 else 4
 
 
 def _weight(note: dict) -> float:
@@ -137,21 +189,6 @@ def _estimate_tempo(melody: list[dict]) -> float:
     while tempo < _MIN_BPM:
         tempo *= 2
     return tempo
-
-
-def _best_phase(melody: list[dict], beat: float) -> float:
-    """The beat offset (0..beat) that puts the most note weight on beats."""
-    best, best_score = 0.0, -math.inf
-    for k in range(48):
-        phase = beat * k / 48
-        score = 0.0
-        for n in melody:
-            off = ((n["start_time"] - phase) / beat) % 1
-            distance = min(off, 1 - off)
-            score += (0.3 + _weight(n)) * math.exp(-((distance / 0.08) ** 2))
-        if score > best_score:
-            best, best_score = phase, score
-    return best
 
 
 def _best_downbeat(melody: list[dict], beat: float, phase: float, meter: int) -> float:

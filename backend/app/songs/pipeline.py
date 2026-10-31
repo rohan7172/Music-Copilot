@@ -21,6 +21,7 @@ import soundfile as sf
 from app.harmoniser import reasons, scoring
 from app.harmoniser.vocab import Key, chord_in_key
 from app.melody import extract_melody
+from app.onset import music_start_samples, trim_notes
 from app.pipeline import suggest
 from app.songs import btc, decode, models, roles
 from app.timing import BeatGrid
@@ -122,11 +123,19 @@ def analyze_song(
     progress: Progress = lambda stage, fraction: None,
     use_llm: bool = True,
     work_dir: Path | None = None,
+    notes: list[dict] | None = None,
+    start: float | None = None,
+    alternatives: bool = True,
 ) -> dict:
+    """`notes` (Basic Pitch on the whole file) and `start` (where the music
+    begins) can be passed in when the caller already has them, so the mix
+    isn't transcribed or measured twice."""
     y, _ = librosa.load(audio_path, sr=_RATE, mono=False, duration=SONG_LIMIT)
     stereo = np.stack([y, y]) if y.ndim == 1 else y[:2]
     mono = stereo.mean(axis=0)
     end = len(mono) / _RATE
+    if start is None:
+        start = music_start_samples(mono, _RATE)
     work = work_dir or Path(tempfile.mkdtemp(prefix="song_"))
     work.mkdir(parents=True, exist_ok=True)
 
@@ -160,8 +169,14 @@ def analyze_song(
     segs = decode.segments(path, confidence, beat_times, end)
 
     progress("Finding the melody", 0.8)
-    all_notes = transcribe(audio_path) if "vocals" not in stem_files else []
-    melody_notes = transcribe(stem_files["vocals"]) if "vocals" in stem_files else all_notes
+    if "vocals" in stem_files:
+        all_notes: list[dict] = []
+        melody_notes = trim_notes(transcribe(stem_files["vocals"]), start)
+    else:
+        # Lead-in ghosts are trimmed once here, for the melody and the
+        # harmony part alike.
+        all_notes = trim_notes(notes if notes is not None else transcribe(audio_path), start)
+        melody_notes = all_notes
     melody = extract_melody(melody_notes)
 
     progress("Hearing what each instrument plays", 0.86)
@@ -181,7 +196,9 @@ def analyze_song(
     grid = grid_from_beats(beat_times, downbeat_times)
     key_info = key_dict(key)
     original = describe_recognised(segs, melody, grid, key)
-    alternatives = suggest(melody, grid, key=key_info, use_llm=use_llm) if melody else {
+    # Skippable for a full mix's quick first answer: its background job
+    # re-harmonises from the separated vocal melody anyway.
+    suggested = suggest(melody, grid, key=key_info, use_llm=use_llm) if melody and alternatives else {
         "progressions": [], "insight": None, "grid": grid.to_dict(0, end)
     }
     return {
@@ -191,9 +208,10 @@ def analyze_song(
         "melody": melody,
         "grid": grid.to_dict(min(0.0, grid.downbeat), end),
         "key": key_info,
-        "progressions": [original] + alternatives["progressions"],
+        "progressions": [original] + suggested["progressions"],
         "insight": _song_insight(segs, key),
         "duration": end,
+        "music_start": start,
         "clipped": end >= SONG_LIMIT - 0.5,
         "parts": parts,
         "stems": sorted(stem_files),

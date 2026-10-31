@@ -16,6 +16,7 @@ from app.timing import BeatGrid
 _MIN_CONFIDENCE = 0.3
 _MIN_NOTE = 0.08  # seconds; shorter notes are blips
 _FRAGMENT = 0.24  # seconds; a same-pitch piece this short is part of its neighbour
+_LOWEST_MELODY = 40  # E2, the bottom of a bass voice
 
 
 # Share of the signal's energy that's percussive above which a polyphonic
@@ -59,17 +60,28 @@ def classify_input(notes: list[dict], percussive_share: float = 0.0) -> str:
 
 
 def percussive_share(audio_path: str, seconds: float = 60.0) -> float:
+    """`percussive_share_samples` for an audio file (0.0 if unreadable)."""
+    import librosa
+
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=seconds)
+    except Exception:
+        return 0.0
+    return percussive_share_samples(y, sr)
+
+
+def percussive_share_samples(y, sr: int) -> float:
     """How much of the recording's energy is percussive (0..1), by splitting
     it into harmonic and percussive parts (HPSS: sustained tones are
     horizontal lines in a spectrogram, hits are vertical ones)."""
     import librosa
     import numpy as np
 
-    try:
-        y, _ = librosa.load(audio_path, sr=22050, mono=True, duration=seconds)
-    except Exception:
-        return 0.0
-    harmonic, percussive = librosa.effects.hpss(y)
+    # Only a coarse ratio is needed (a song measures ~0.05, a voice or a
+    # piano ~0.001), so 30 s at 11 kHz is plenty: about 5x faster than a
+    # minute at full rate, with the same verdict.
+    clip = librosa.resample(y[: int(30 * sr)], orig_sr=sr, target_sr=11025)
+    harmonic, percussive = librosa.effects.hpss(clip)
     total = float(np.sum(harmonic**2) + np.sum(percussive**2))
     return float(np.sum(percussive**2)) / total if total > 0 else 0.0
 
@@ -77,7 +89,15 @@ def percussive_share(audio_path: str, seconds: float = 60.0) -> float:
 def extract_melody(notes: list[dict]) -> list[dict]:
     """The top line: at every moment the highest sounding note wins. A lower
     note that outlasts the tune above it carries on once the tune stops."""
-    candidates = [n for n in without_overtones(notes) if n["confidence"] >= _MIN_CONFIDENCE]
+    candidates = [
+        n
+        for n in without_overtones(notes)
+        if n["confidence"] >= _MIN_CONFIDENCE
+        # Below E2 nobody sings, and a lone low note there is almost always
+        # hum or rumble that Basic Pitch scored as a note; a real one that
+        # low is loud and sure of itself.
+        and (n["midi_pitch"] >= _LOWEST_MELODY or n["confidence"] >= 0.6)
+    ]
     if not candidates:
         return []
     times = sorted({t for n in candidates for t in (n["start_time"], n["end_time"])})

@@ -50,7 +50,9 @@ class ApiService {
       ..fields.addAll({
         if (bpm != null) 'bpm': '$bpm',
         if (firstBeat != null) 'first_beat': '$firstBeat',
-        'meter': '$meter',
+        // Only with a click: otherwise the backend works out 3/4 or 4/4
+        // from the take itself.
+        if (bpm != null && firstBeat != null) 'meter': '$meter',
       })
       ..files.add(
         http.MultipartFile.fromBytes(
