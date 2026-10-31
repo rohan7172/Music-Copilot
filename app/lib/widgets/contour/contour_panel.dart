@@ -21,7 +21,12 @@ class ContourPanel extends StatelessWidget {
     required this.controller,
     this.onChordTap,
     this.label = 'vocal contour',
+    this.laneLabels,
   });
+
+  /// Named rows (note number → name, lowest note first) instead of pitch
+  /// labels: the Drums lens's Kick / Snare / Hi-hat.
+  final Map<int, String>? laneLabels;
 
   final SessionController controller;
 
@@ -67,6 +72,7 @@ class ContourPanel extends StatelessWidget {
                   size: constraints.biggest,
                   notes: notes,
                   duration: scene.duration,
+                  lanes: laneLabels?.keys.toList(),
                 );
                 return Semantics(
                   label:
@@ -101,6 +107,7 @@ class ContourPanel extends StatelessWidget {
                             visible: visible,
                             clock: controller.clock,
                             grid: controller.grid,
+                            laneLabels: laneLabels,
                             activeChord: () => controller.activeChord,
                           ),
                         ),
@@ -174,7 +181,10 @@ class _ContourPainter extends CustomPainter {
     required this.clock,
     required this.grid,
     required this.activeChord,
+    this.laneLabels,
   }) : super(repaint: clock);
+
+  final Map<int, String>? laneLabels;
 
   final BeatGrid? grid;
   final int? Function() activeChord;
@@ -230,7 +240,7 @@ class _ContourPainter extends CustomPainter {
       canvas.drawLine(Offset(layout.left - 4, y), Offset(size.width, y), rule);
       final label = TextPainter(
         text: TextSpan(
-          text: midiName(midi),
+          text: laneLabels?[midi] ?? midiName(midi),
           style: TextStyles.labelSm.copyWith(
             fontSize: 9,
             letterSpacing: 0.2,

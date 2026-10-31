@@ -1,4 +1,4 @@
-from app.songs.roles import bass_role, drums_role, harmony_role, harmony_style, melody_role
+from app.songs.roles import bass_role, harmony_role, harmony_style, melody_role
 
 C, G = (0, "maj"), (7, "maj")
 CHORDS = [
@@ -35,17 +35,3 @@ def test_harmony_styles():
     pads = [_n(60, 0.0, 4.0), _n(64, 0.02, 4.0), _n(55, 4.0, 8.0), _n(59, 4.5, 8.0)]
     assert harmony_style(pads) == "sustained"
     assert "block chords" in harmony_role(strummed)["summary"]
-
-
-def test_drums_backbeat():
-    beats = [i * 0.5 for i in range(17)]
-    downbeats = beats[::4]
-    onsets, strengths = [], []
-    for i, b in enumerate(beats[:-1]):
-        onsets.append(b)
-        strengths.append(1.0 if i % 2 == 1 else 0.5)  # 2 and 4 loudest
-        onsets.append(b + 0.25)
-        strengths.append(0.3)  # eighth-note hats
-    role = drums_role(onsets, beats, downbeats, strengths)
-    assert role["hits_per_bar"] == 8.0
-    assert "backbeat" in role["detail"]

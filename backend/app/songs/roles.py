@@ -127,33 +127,3 @@ def harmony_role(notes: list[dict]) -> dict:
         "sustained": "Long held chords (pads or sustained keys): a soft bed of harmony under everything.",
     }[style]
     return {"summary": summary, "detail": None, "style": style}
-
-
-def drums_role(onsets: list[float], beats: list[float], downbeats: list[float], strengths: list[float] | None = None, meter: int = 4) -> dict:
-    """How busy the drums are and where they accent: a backbeat (hits
-    loudest on 2 and 4) is the classic pop and rock feel."""
-    if not onsets or len(downbeats) < 2:
-        return {"summary": "Keeps time.", "detail": None}
-    bars = max(len(downbeats) - 1, 1)
-    span = (downbeats[0], downbeats[-1])
-    inside = [t for t in onsets if span[0] <= t < span[1]]
-    per_bar = len(inside) / bars
-    busy = "a busy, driving pattern" if per_bar >= 10 else "a steady pattern" if per_bar >= 5 else "a sparse, laid-back pattern"
-    summary = f"Keeps time with about {per_bar:.0f} hits a bar: {busy}."
-    detail = None
-    if strengths is not None and meter == 4 and len(beats) >= 8:
-        by_position = [[] for _ in range(4)]
-        beats_arr = np.asarray(beats)
-        first = downbeats[0]
-        for t, s in zip(onsets, strengths):
-            i = int(np.argmin(np.abs(beats_arr - t)))
-            if abs(beats_arr[i] - t) > 0.07:
-                continue
-            position = int(round((beats_arr[i] - first) / np.median(np.diff(beats_arr)))) % 4
-            by_position[position].append(s)
-        level = [float(np.mean(p)) if p else 0.0 for p in by_position]
-        if level[1] and level[3] and min(level[1], level[3]) > 1.15 * max(level[0], level[2]):
-            detail = "The loudest hits fall on beats 2 and 4: a backbeat, the classic pop and rock feel."
-        elif level[0] > 1.15 * max(level[1:]):
-            detail = "The strongest hit lands on beat 1 of each bar, marking where each bar begins."
-    return {"summary": summary, "detail": detail, "hits_per_bar": round(per_bar, 1)}

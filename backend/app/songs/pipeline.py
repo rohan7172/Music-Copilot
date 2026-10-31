@@ -23,7 +23,7 @@ from app.harmoniser.vocab import Key, chord_in_key
 from app.melody import extract_melody
 from app.onset import music_start_samples, trim_notes
 from app.pipeline import suggest
-from app.songs import btc, decode, models, roles
+from app.songs import btc, decode, drums, models, roles
 from app.timing import BeatGrid
 
 SONG_LIMIT = 90.0
@@ -186,14 +186,12 @@ def analyze_song(
         parts.append(_part("bass", "Bass", "bass", bass_notes, roles.bass_role(bass_notes, segs, downbeats)))
     harmony_notes = transcribe(stem_files["other"]) if "other" in stem_files else all_notes
     parts.append(_part("harmony", "Harmony", "other" if stem_files else None, harmony_notes, roles.harmony_role(harmony_notes)))
+    grid = grid_from_beats(beat_times, downbeat_times)
     if "drums" in stem_files:
-        hits, strengths = _drum_hits(stems["drums"])
-        parts.append(
-            _part("drums", "Drums", "drums", [], roles.drums_role(hits, [float(b) for b in beat_times], downbeats, strengths, 4))
-        )
+        role, hits = drums.analyse(stems["drums"], mono, _RATE, beat_times, downbeat_times, grid.meter)
+        parts.append(_part("drums", "Drums", "drums", hits, role))
 
     progress("Suggesting alternatives", 0.92)
-    grid = grid_from_beats(beat_times, downbeat_times)
     key_info = key_dict(key)
     original = describe_recognised(segs, melody, grid, key)
     # Skippable for a full mix's quick first answer: its background job
@@ -229,17 +227,7 @@ def _part(part_id: str, name: str, stem: str | None, notes: list[dict], role: di
     }
 
 
-def _drum_hits(drums: np.ndarray) -> tuple[list[float], list[float]]:
-    """Drum hit times and how strong each is, from the drum stem's onset
-    envelope (how suddenly the sound gets louder)."""
-    envelope = librosa.onset.onset_strength(y=drums, sr=_RATE)
-    # Scaled to its 99th percentile, not its maximum: librosa's default
-    # scales to the single loudest moment, so one big crash anywhere in the
-    # clip pushed every ordinary hit under the detection threshold.
-    scaled = np.minimum(envelope / max(float(np.percentile(envelope, 99)), 1e-6), 1.0)
-    frames = librosa.onset.onset_detect(onset_envelope=scaled, sr=_RATE, normalize=False, delta=0.12)
-    times = librosa.frames_to_time(frames, sr=_RATE)
-    return [float(t) for t in times], [float(scaled[f]) for f in frames]
+
 
 
 def _song_insight(segs: list[dict], key: Key) -> str | None:

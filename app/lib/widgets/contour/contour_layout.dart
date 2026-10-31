@@ -19,7 +19,13 @@ class ContourLayout {
     required this.size,
     required this.notes,
     required this.duration,
+    this.lanes,
   }) : fitted = fitPitchRange(notes);
+
+  /// Fixed rows instead of a pitch range, lowest first — e.g. a drum part's
+  /// kick, snare and hi-hat, spread evenly rather than by their (arbitrary)
+  /// drum-map note numbers.
+  final List<int>? lanes;
 
   final Size size;
 
@@ -43,6 +49,7 @@ class ContourLayout {
   static const verticalPad = 10.0;
   static const pillHeight = 22.0;
   static const minPillWidth = 10.0;
+  static const drumTickWidth = 4.0;
 
   /// When notes are sparse enough to each carry their name, pills are at
   /// least this wide so the name fits.
@@ -50,7 +57,11 @@ class ContourLayout {
 
   /// The narrowest pill in this roll: wide enough for a name when there's
   /// room for every note to have one, otherwise just wide enough to tap.
-  double get pillFloor => notes.length * (labelPillWidth + 4) <= width
+  double get pillFloor => lanes != null
+      // Named lanes (drums) say what each hit is: hits are thin ticks, so a
+      // busy hi-hat still reads as separate strokes.
+      ? drumTickWidth
+      : notes.length * (labelPillWidth + 4) <= width
       ? labelPillWidth
       : minPillWidth;
 
@@ -66,6 +77,12 @@ class ContourLayout {
   double timeForX(double x) => ((x - left) / width).clamp(0.0, 1.0) * duration;
 
   double yForMidi(int midi) {
+    final rows = lanes;
+    if (rows != null) {
+      final index = rows.indexOf(midi);
+      if (rows.length < 2 || index < 0) return (top + bottom) / 2;
+      return bottom - index / (rows.length - 1) * (bottom - top);
+    }
     final lo = fitted.lo;
     final hi = fitted.hi;
     if (midi >= hi) return top;
@@ -78,7 +95,9 @@ class ContourLayout {
   Rect pill(int i) {
     final n = notes[i];
     final x0 = xForTime(n.startTime);
-    final x1 = math.max(xForTime(n.endTime), x0 + pillFloor);
+    final x1 = lanes != null
+        ? x0 + pillFloor
+        : math.max(xForTime(n.endTime), x0 + pillFloor);
     final y = yForMidi(n.midiPitch);
     return Rect.fromLTRB(
       x0,
@@ -108,6 +127,7 @@ class ContourLayout {
   /// Up to five evenly spaced pitches to rule and label, spanning the
   /// fitted range, highest first.
   List<int> gridPitches() {
+    if (lanes != null) return lanes!.reversed.toList();
     final lo = fitted.lo;
     final hi = fitted.hi;
     final step = math.max(1, ((hi - lo) / 4).ceil());
@@ -135,6 +155,7 @@ class ContourLayout {
   /// one that starts after it ends (so stacked, simultaneous notes don't
   /// zigzag), broken wherever there's more than [maxGap] seconds of rest.
   List<List<Offset>> thread({double maxGap = 1.0}) {
+    if (lanes != null) return const []; // no melodic line through drum hits
     final order = [for (var i = 0; i < notes.length; i++) i]
       ..sort((a, b) => notes[a].startTime.compareTo(notes[b].startTime));
     final runs = <List<Offset>>[];

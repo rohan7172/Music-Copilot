@@ -133,6 +133,9 @@ class ResultsView extends StatelessWidget {
               'drums' => 'drums',
               _ => controller.parts.isEmpty ? 'vocal contour' : 'melody',
             },
+            laneLabels: controller.lens == 'drums'
+                ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
+                : null,
           ),
           const SizedBox(height: Space.lg),
           Row(

@@ -614,20 +614,54 @@ about its role, measured, not guessed:
 - **Harmony** (guitars, keys) — *how* it plays the chords, from how its
   notes start: many notes starting within 50 ms of each other = strummed
   block chords; one after another = arpeggios; few long notes = pads.
-- **Drums** — hits per bar from the drum stem's *onset envelope* (how
-  suddenly the sound gets louder), and whether the loudest hits fall on
-  beats 2 and 4 (a backbeat) or on beat 1.
-- **A real-data lesson**: the first drum count said "1 hit a bar". librosa
-  scales the onset envelope to its single loudest moment, so one crash
-  anywhere in 90 seconds pushed every ordinary hit under the threshold.
-  Scaling to the 99th percentile instead (robust to a few outliers) found
-  ~4 hits a second, matching what you hear. Percentiles instead of
-  min/max is the same idea as the melody range above.
+- **Drums** — see "Recognising the drums" below.
 - **Soloing a part**: the stems are saved and served from
   `/jobs/{id}/stems/{name}`; choosing a lens in the app swaps the player to
   that stem's URL and seeks to the same position. The endpoint only
   accepts the four known stem names and an alphanumeric job id, so a
   request can't reach other files (no path traversal).
+
+## Recognising the drums (`backend/app/songs/drums.py`)
+
+- **What went wrong first**: the drum part said "about 12 hits a bar: a
+  busy, driving pattern" for a song with almost no drums. Its drum stem
+  (2% of the energy, ~17 dB under the mix) was Demucs's *leakage* — a
+  little of the guitar and voice that ends up in every stem — and the
+  detector scaled its threshold to the stem's own loudest moments, so it
+  found "hits" in whatever was there. A detector that adapts to its input
+  will always find *something*; it needs an outside reference.
+- **Loudness can't decide it either**: a real rock beat under a loud
+  vocal measured ~15 dB under the mix, barely different from that
+  leakage. How loud a part is relative to the mix depends on the mix's
+  balance, not on whether a drummer is playing.
+- **Structure decides it**: a drummer's hits land on the beat grid (here,
+  within 50 ms of an eighth-note position, measured from the real beat
+  list) bar after bar. The leakage scored 64% on the grid and appeared in
+  8 of ~59 bars; the real beat 100% and 12 of 12. So: audible at all, then
+  ≥80% on the grid and present in ≥30% of bars (drums may sit out a verse).
+- **Kick, snare and hi-hat from frequency bands**: the stem is split with
+  Butterworth filters — kick below 120 Hz, snare 180 Hz–2.5 kHz, hi-hat
+  above 6 kHz — and a hit is a sudden jump (≥9 dB within ~45 ms) in a band
+  that's loud enough *relative to the mix*. Bands firing within 35 ms are
+  one stroke; a kick plus a hat on the same beat counts as both.
+- **Where the bands lie**: a snare's ~200 Hz body leaks into the kick band
+  (so a kick needs the low band about as loud as the mid band), and a
+  snare's rattle reaches the hi-hat band (so a hat struck with a snare is
+  masked — to the detector as to your ear). A hat whose only gaps are the
+  snare's hits is therefore described as steady.
+- **The groove in words**: each piece's regular positions in eighth-note
+  steps (beats since the bar's downbeat + the fraction to the next beat,
+  from the real beats, so a drifting tempo doesn't skew them) become
+  "kick on 1 and 3, snare on 2 and 4 (a backbeat), hi-hat on every eighth
+  note: a straight rock and pop groove" — or four on the floor, off-beat
+  hats, a waltz feel in 3/4.
+- **Showing hits as notes**: strokes travel as ordinary notes using the
+  General MIDI drum map (36 kick, 38 snare, 42 closed hi-hat), and the
+  Drums lens draws them as thin ticks on three named lanes.
+- Tested on a synthesised kit (a pitch-dropping sine for the kick, noise
+  plus a 190 Hz body for the snare, high-passed noise for the hats) in
+  rock, dance and waltz patterns, plus quiet leakage and random off-beat
+  hits that must *not* count as drums.
 
 ## Loading model weights safely (`backend/app/songs/btc.py`)
 

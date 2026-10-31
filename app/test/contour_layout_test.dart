@@ -96,4 +96,25 @@ void main() {
     expect(layout.hitChord(layout.chordRect(2, 4).center, spans), 1);
     expect(layout.hitChord(layout.pill(0).center, spans), isNull);
   });
+
+  test('fixed lanes spread drum pieces evenly, labelled top to bottom', () {
+    final drums = ContourLayout(
+      size: const Size(300, 176),
+      notes: [note(36, 0, 0.1), note(38, 0.5, 0.6), note(42, 1, 1.1)],
+      duration: 2,
+      lanes: const [36, 38, 42],
+    );
+    expect(drums.gridPitches(), [42, 38, 36]);
+    final kick = drums.yForMidi(36),
+        snare = drums.yForMidi(38),
+        hat = drums.yForMidi(42);
+    expect(kick, drums.bottom);
+    expect(hat, drums.top);
+    expect(
+      (kick - snare - (snare - hat)).abs(),
+      lessThan(1e-9),
+    ); // evenly spaced
+    expect(drums.thread(), isEmpty);
+    expect(drums.pillFloor, ContourLayout.drumTickWidth);
+  });
 }
