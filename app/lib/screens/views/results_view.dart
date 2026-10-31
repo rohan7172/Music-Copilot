@@ -40,11 +40,12 @@ class ResultsView extends StatelessWidget {
         children: [
           Row(
             children: [
-              InfoChip(
+              // Icon-only so the key and tempo always fit beside it.
+              RoundAction(
                 icon: Icons.refresh_rounded,
+                size: 32,
                 semanticLabel: 'Start a new take',
                 onTap: controller.newTake,
-                children: const [TextSpan(text: 'new take')],
               ),
               const Spacer(),
               if (key != null)
