@@ -31,8 +31,17 @@ def chord_reasons(
     prev: Chord | None,
     key: Key,
     cadence: float,
+    voice: str = "your",
 ) -> list[str]:
-    """Up to two short sentences, most telling first."""
+    """Up to two short sentences, most telling first. `voice` is whose tune
+    it is: "your" for the user's take, "the" for a song's melody."""
+    texts = _chord_reasons(chord, slot, prev, key, cadence)
+    if voice == "your":
+        return texts
+    return [t.replace("Your tune", "The tune").replace("Your ", "The melody's ") for t in texts]
+
+
+def _chord_reasons(chord: Chord, slot: scoring.Slot, prev: Chord | None, key: Key, cadence: float) -> list[str]:
     sym = chord.symbol(key)
     reasons: list[tuple[float, str]] = []
 

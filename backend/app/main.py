@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import tempfile
 import wave
@@ -10,6 +12,7 @@ from fastapi import Body, FastAPI, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import synth
+from app.songs import jobs
 from app.harmony import without_overtones
 from app.notes import midi_to_note_name
 from app.pipeline import analyze_notes, suggest
@@ -81,12 +84,35 @@ async def analyze(
         raise HTTPException(status_code=400, detail="Uploaded file must be an audio file")
 
     suffix = Path(file.filename or "audio").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+    # Kept on disk (not a with-block temp file): a song job reads it later.
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(await file.read())
-        tmp.flush()
+        audio_path = tmp.name
 
-        _, _, note_events = predict(tmp.name, _model)
+    notes = transcribe(audio_path)
+    result = analyze_notes(notes, bpm=bpm, first_beat=first_beat, meter=meter)
 
+    # A song, or chords on one instrument: the quick melody-based answer
+    # comes back now, and the real progression follows from a background
+    # job the app polls (GET /jobs/{id}).
+    if result["route"] in ("full_mix", "polyphonic"):
+        from app.songs import models
+
+        if models.available():
+            from app.songs.pipeline import analyze_song
+
+            route = result["route"]
+            job_id = jobs.start(lambda progress: analyze_song(audio_path, transcribe, route, progress))
+            result["job"] = {"id": job_id, "status": "running"}
+            result["route_note"] = "Listening to each instrument to find the song's own chords…"
+    return result
+
+
+def transcribe(audio_path: str) -> list[dict]:
+    """Basic Pitch's notes for an audio file, overtone ghosts removed."""
+    # Basic Pitch prints diagnostics for every audio chunk; keep the log clean.
+    with contextlib.redirect_stdout(io.StringIO()):
+        _, _, note_events = predict(audio_path, _model)
     notes = [
         {
             "pitch": midi_to_note_name(int(pitch)),
@@ -98,8 +124,16 @@ async def analyze(
         for start_time, end_time, pitch, amplitude, _pitch_bends in note_events
     ]
     notes.sort(key=lambda n: n["start_time"])
-    notes = without_overtones(notes)
-    return analyze_notes(notes, bpm=bpm, first_beat=first_beat, meter=meter)
+    return without_overtones(notes)
+
+
+@app.get("/jobs/{job_id}")
+def job_status(job_id: str) -> dict:
+    """A song job's stage and progress, and its full result once done."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such job (it may have expired)")
+    return job
 
 
 @app.post("/harmonise")

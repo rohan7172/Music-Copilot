@@ -43,8 +43,8 @@ KEY_COST = {
 
 SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
-_FLAT_TONICS = {"F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"}
-_FLAT_MINOR_TONICS = {"D", "G", "C", "F", "Bb", "Eb", "Ab"}
+_FLAT_MAJOR_PCS = {5, 10, 3, 8, 1}  # F, Bb, Eb, Ab, Db major
+_FLAT_MINOR_PCS = {2, 7, 0, 5, 10, 3}  # D, G, C, F, Bb, Eb minor
 
 _NAME_TO_PC = {**{n: i for i, n in enumerate(SHARP_NAMES)}, **{n: i for i, n in enumerate(FLAT_NAMES)}}
 
@@ -60,9 +60,12 @@ class Key:
 
     @property
     def names(self) -> list[str]:
-        tonic = FLAT_NAMES[self.tonic] if self.tonic in (1, 3, 6, 8, 10) else SHARP_NAMES[self.tonic]
-        flats = tonic in (_FLAT_TONICS if self.mode == "major" else _FLAT_MINOR_TONICS)
-        return FLAT_NAMES if flats or "b" in tonic else SHARP_NAMES
+        """Note names spelled the way this key's signature does: flats for
+        F, Bb, Eb, Ab, Db major (and D, G, C, F, Bb minor), sharps otherwise.
+        F# major and the minor keys on C#, F#, G# and D# use sharps, as
+        they're conventionally written."""
+        flat_keys = _FLAT_MAJOR_PCS if self.mode == "major" else _FLAT_MINOR_PCS
+        return FLAT_NAMES if self.tonic in flat_keys else SHARP_NAMES
 
     def name_of(self, pc: int) -> str:
         return self.names[pc % 12]
@@ -262,3 +265,13 @@ def parse_roman(text: str, key: Key) -> Chord | None:
         if c.root == root and c.quality == quality:
             return c
     return _chord(key, interval, quality, "chromatic")
+
+
+def chord_in_key(root: int, quality: str, key: Key) -> Chord:
+    """The vocabulary's chord for this root and quality in the key (with its
+    Roman numeral, kind and function), or a "chromatic" one if it isn't in
+    the vocabulary. Used for chords recognised in a song."""
+    for c in vocabulary(key):
+        if c.root == root % 12 and c.quality == quality:
+            return c
+    return _chord(key, (root - key.tonic) % 12, quality, "chromatic")

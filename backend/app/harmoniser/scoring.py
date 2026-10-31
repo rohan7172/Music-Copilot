@@ -86,6 +86,27 @@ def build_slots(melody: list[dict], grid: BeatGrid, per_bar: int = 1) -> list[Sl
             start = grid.bar_start(bar) + part * span
             slots.append(Slot(index=len(slots), start=start, end=start + span, bar=bar - first_bar))
 
+    fill_slots(melody, grid, slots)
+    _mark_phrase_ends(melody, grid, slots, per_bar)
+    return slots
+
+
+def span_slots(melody: list[dict], grid: BeatGrid, spans: list[tuple[float, float]]) -> list[Slot]:
+    """Slots for arbitrary time spans, e.g. the chords recognised in a song,
+    which don't line up with whole bars."""
+    slots = [
+        Slot(index=i, start=start, end=end, bar=max(0, grid.bar_index(start + 1e-3)))
+        for i, (start, end) in enumerate(spans)
+    ]
+    fill_slots(melody, grid, slots)
+    if slots:
+        slots[-1].last = slots[-1].phrase_end = True
+    return slots
+
+
+def fill_slots(melody: list[dict], grid: BeatGrid, slots: list[Slot]) -> None:
+    """Puts each melody note into every slot it sounds in, weighted by how
+    long it sounds there and how strong a beat it starts on."""
     for i, n in enumerate(melody):
         prev_midi = melody[i - 1]["midi_pitch"] if i > 0 else None
         next_midi = melody[i + 1]["midi_pitch"] if i + 1 < len(melody) else None
@@ -108,6 +129,9 @@ def build_slots(melody: list[dict], grid: BeatGrid, per_bar: int = 1) -> list[Sl
                 )
             )
 
+
+
+def _mark_phrase_ends(melody: list[dict], grid: BeatGrid, slots: list[Slot], per_bar: int) -> None:
     beat = grid.beat_length
     for i, slot in enumerate(slots):
         slot.last = i == len(slots) - 1
@@ -124,7 +148,6 @@ def build_slots(melody: list[dict], grid: BeatGrid, per_bar: int = 1) -> list[Sl
             rest_after = not later or later[0]["start_time"] - final["end_time"] >= 0.9 * beat
             if (held or rest_after) and final["end_time"] >= slot.end - 0.6 * beat:
                 slot.phrase_end = True
-    return slots
 
 
 def classify(note: SlotNote, chord: Chord) -> str:
