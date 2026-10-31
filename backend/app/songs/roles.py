@@ -49,9 +49,16 @@ def melody_role(melody: list[dict], chords: list[dict]) -> dict:
     # notes leaking into the vocal stem don't stretch it.
     pitches = [n["midi_pitch"] for n in melody]
     low, high = (int(round(v)) for v in np.percentile(pitches, [5, 95]))
+    span = high - low
+    # Over two octaves isn't a believable range for one voice: it means other
+    # instruments leaked into the vocal stem, so say nothing rather than
+    # state a wrong number.
+    detail = None
+    if span <= 24:
+        detail = f"It spans {span} semitones" + (", a wide, soaring range." if span >= 15 else ".")
     return {
         "summary": f"The tune. It lands on notes of the chord {share}% of the time: {feel}.",
-        "detail": f"It spans {high - low} semitones" + (", a wide, soaring range." if high - low >= 15 else "."),
+        "detail": detail,
         "chord_tone_share": share,
     }
 
