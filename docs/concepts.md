@@ -511,6 +511,49 @@ removal, the Viterbi smoother) are kept for the song-recognition work.
 - `music21` — the Python music-theory library doing key-profile
   correlation; worth skimming its docs to see what else it can do
 
+## Loading model weights safely (`backend/app/songs/btc.py`)
+
+The song path uses pretrained models downloaded from other people's
+repositories. How you load their files matters as much as what they do.
+
+- **A `.pt` file is a pickle.** PyTorch saves checkpoints with Python's
+  `pickle`, which can rebuild almost any object. To do that, a pickle can
+  contain instructions like "import this module and call this function
+  with these arguments" that run *while it loads*. A malicious file could
+  ask for `os.system(...)` and it would run the moment you call
+  `torch.load()`. Loading someone's pickle is like running their script.
+- **`weights_only=True`** switches to a restricted loader that only
+  rebuilds plain data: tensors (the weights themselves), numbers, strings,
+  lists, dicts. Anything else the file asks for is refused with an error
+  instead of executed. A trained model is just numbers, so a legitimate
+  checkpoint loads fine; a booby-trapped one fails loudly. It's the
+  default since PyTorch 2.6. `weights_only=False` is the old behaviour:
+  only for files from a source you completely trust.
+- **Allow-listing exactly what's needed.** BTC's checkpoint also stores the
+  mean and standard deviation used to normalise its input, saved as numpy
+  values. Those aren't on the default safe list, so
+  `torch.serialization.safe_globals([...])` allows just the numpy functions
+  that rebuild an array or a single number from its type and raw bytes —
+  data, not code — under the names the file was saved with. When the
+  first attempt hit one more numpy type (`scalar`), the loader stopped and
+  said so: the safety net working as intended.
+- **Checking the file is the one you reviewed.** `scripts/fetch_btc_weights.py`
+  downloads the weights from BTC's repository at a *pinned commit* and
+  compares their SHA-256 hash with the published one before saving;
+  `btc.load()` checks it again. A changed or corrupted file is refused.
+- **Reading the code you run.** Instead of importing the cloned research
+  repo, the few hundred lines of model code were reviewed (plain PyTorch
+  layers: no file, network or subprocess access) and vendored into the
+  backend with their MIT licence, minus training code and an unsafe
+  `yaml.load`. Layer *names* were kept exactly, because a checkpoint's
+  weights are matched to the model by name (`load_state_dict`).
+- Why this came up: the first attempt loaded BTC with
+  `weights_only=False` straight from the cloned repo, and the session's
+  safety check blocked it. That was a reasonable call for an unreviewed
+  third-party file, and the steps above are the safe way to get the same
+  result. Demucs and Beat This! didn't need this because their own
+  libraries load their published weights.
+
 ## Testing
 
 - `pytest` (`backend/tests/`) — the melody, grid, key, harmoniser, LLM

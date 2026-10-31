@@ -1,0 +1,11 @@
+# Song uploads only (Part 2): source separation, beat tracking and chord
+# recognition from audio. Melody takes don't need any of this.
+#   backend/venv/bin/pip install -r backend/requirements-songs.txt
+#   backend/venv/bin/python scripts/fetch_btc_weights.py
+torch==2.6.0
+torchaudio==2.6.0  # pinned with torch: demucs uses torchaudio APIs removed later
+demucs==4.0.1
+einops
+soxr
+rotary-embedding-torch
+beat_this @ https://github.com/CPJKU/beat_this/archive/main.zip
