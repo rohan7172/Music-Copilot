@@ -112,6 +112,7 @@ class ProgressionChord {
     required this.fit,
     required this.pitchClasses,
     required this.reasons,
+    this.confidence,
   });
 
   factory ProgressionChord.fromJson(Map<String, dynamic> json) =>
@@ -126,6 +127,7 @@ class ProgressionChord {
         fit: ChordFit.values.byName(json['fit'] as String),
         pitchClasses: (json['pitch_classes'] as List<dynamic>).cast<int>(),
         reasons: (json['reasons'] as List<dynamic>).cast<String>(),
+        confidence: (json['confidence'] as num?)?.toDouble(),
       );
 
   final int bar;
@@ -150,6 +152,13 @@ class ProgressionChord {
 
   /// Why it works, most telling first.
   final List<String> reasons;
+
+  /// For a chord recognised in a song: how sure the recognition was
+  /// (0..1). Null for suggested chords.
+  final double? confidence;
+
+  /// A recognised chord the model wasn't sure of, shown as a "maybe".
+  bool get uncertain => confidence != null && confidence! < 0.35;
 
   bool get isColour => kind != 'diatonic';
 
@@ -179,10 +188,11 @@ class Progression {
     ],
   );
 
-  /// "safe", "colourful" or "bold".
+  /// "original" (recognised in a song), "safe", "colourful" or "bold".
   final String kind;
 
-  /// "theory", or "llm" when an LLM proposed it and the engine validated it.
+  /// "recognised", "theory", or "llm" when an LLM proposed it and the
+  /// engine validated it.
   final String source;
 
   /// The one-line mood, e.g. "warm and settled".
@@ -190,6 +200,7 @@ class Progression {
   final List<ProgressionChord> chords;
 
   String get title => switch (kind) {
+    'original' => 'Original',
     'safe' => 'Safe',
     'colourful' => 'Colourful',
     _ => 'Bold',
@@ -236,6 +247,7 @@ class Analysis {
     required this.route,
     required this.routeNote,
     required this.suggestions,
+    this.jobId,
   });
 
   factory Analysis.fromJson(Map<String, dynamic> json) => Analysis(
@@ -250,6 +262,7 @@ class Analysis {
     route: json['route'] as String? ?? 'melody',
     routeNote: json['route_note'] as String?,
     suggestions: Suggestions.fromJson(json),
+    jobId: (json['job'] as Map<String, dynamic>?)?['id'] as String?,
   );
 
   /// Every note Basic Pitch heard.
@@ -264,4 +277,40 @@ class Analysis {
   /// A one-line note when the take isn't a plain melody, else null.
   final String? routeNote;
   final Suggestions suggestions;
+
+  /// Set when the backend is still recognising a song's own chords in the
+  /// background; poll it with ApiService.job.
+  final String? jobId;
+}
+
+/// A background song analysis: where it's got to, and the full result
+/// once it's done.
+class SongJob {
+  SongJob({
+    required this.status,
+    required this.stage,
+    required this.progress,
+    this.result,
+    this.error,
+  });
+
+  factory SongJob.fromJson(Map<String, dynamic> json) {
+    final result = json['result'];
+    return SongJob(
+      status: json['status'] as String,
+      stage: json['stage'] as String? ?? '',
+      progress: (json['progress'] as num?)?.toDouble() ?? 0,
+      result: result == null
+          ? null
+          : Analysis.fromJson(result as Map<String, dynamic>),
+      error: json['error'] as String?,
+    );
+  }
+
+  /// "running", "done" or "failed".
+  final String status;
+  final String stage;
+  final double progress;
+  final Analysis? result;
+  final String? error;
 }

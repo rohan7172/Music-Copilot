@@ -55,8 +55,9 @@ def analyze_notes(
     first_beat: float | None = None,
     meter: int = 4,
     use_llm: bool = True,
+    percussive: float = 0.0,
 ) -> dict:
-    route = classify_input(notes)
+    route = classify_input(notes, percussive)
     melody = extract_melody(notes)
     if bpm and first_beat is not None:
         grid = grid_from_click(bpm, first_beat, meter)

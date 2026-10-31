@@ -85,4 +85,34 @@ void main() {
     expect(analysis.suggestions.progressions, isEmpty);
     expect(analysis.suggestions.key, isNull);
   });
+
+  test('A song job parses its stage, then its result with an Original card', () {
+    final running = SongJob.fromJson({'status': 'running', 'stage': 'Hearing the chords', 'progress': 0.6});
+    expect(running.result, isNull);
+    expect(running.progress, 0.6);
+    final done = SongJob.fromJson({
+      'status': 'done',
+      'stage': 'Done',
+      'progress': 1.0,
+      'result': {
+        'notes': [],
+        'melody': [],
+        'route': 'full_mix',
+        'progressions': [
+          {
+            'kind': 'original',
+            'source': 'recognised',
+            'character': 'what the recording plays',
+            'score': 0,
+            'chords': [{..._chord(0, 'C'), 'confidence': 0.2}],
+          },
+        ],
+      },
+    });
+    final original = done.result!.suggestions.progressions.single;
+    expect(original.title, 'Original');
+    expect(original.chords.single.uncertain, isTrue);
+    final analysis = Analysis.fromJson({'notes': [], 'job': {'id': 'abc', 'status': 'running'}});
+    expect(analysis.jobId, 'abc');
+  });
 }

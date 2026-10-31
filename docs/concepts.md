@@ -511,6 +511,52 @@ removal, the Viterbi smoother) are kept for the song-recognition work.
 - `music21` — the Python music-theory library doing key-profile
   correlation; worth skimming its docs to see what else it can do
 
+## Recognising a song's own chords (`backend/app/songs/`)
+
+For an uploaded song the question changes from "what would fit?" to "what
+does it play?" — and the answer needs real audio models, not the note
+lookup the app started with (a strummed chord ringing out produces few
+note events; overtones produce fake ones; melody notes get counted as
+chord tones).
+
+- **Is it a song?** (`melody.classify_input`): the average number of
+  notes sounding at once tells a single tune from chords, but not a piano
+  from a band. The tie-breaker is drums: **HPSS** (harmonic-percussive
+  source separation) splits a spectrogram into sustained tones
+  (horizontal lines) and hits (vertical lines); a song with drums has a
+  few percent of its energy in the percussive part, a hummed take or a
+  solo instrument almost none.
+- **Source separation (Demucs)**: a neural network that splits a mix into
+  stems — drums, bass, "other" (guitars, keys) and vocals — so the melody
+  comes from the vocal stem and the bass line from the bass stem instead
+  of a tangle of everything.
+- **Beat tracking (Beat This!)**: beats and downbeats from the audio, so
+  chords can change on beats and bars have a real position.
+- **Chord recognition (BTC)**: a transformer that looks at a
+  **constant-Q transform** (a spectrogram whose bins are spaced like
+  musical semitones: 24 per octave here) and outputs, ~11 times a second,
+  a probability for each of 170 chords (12 roots × 14 qualities, plus
+  "no chord").
+- **Beat-synchronous decoding** (`decode.py`): BTC's frame-by-frame
+  guesses flicker, so they're averaged over each beat and run through a
+  **Viterbi decoder** (the same "best path through time" idea as the old
+  chord smoother) whose rules are what a musician assumes: change chord
+  only on beats and most readily on bar lines; the bass note is usually
+  the root; some moves are far more likely than others (the corpus prior,
+  in the song's key); holding is the default.
+- **Confidence shown as confidence**: each recognised chord keeps how
+  much of its beat's probability it had; unsure ones are drawn faded and
+  marked "maybe" rather than shown as fact.
+- **Background jobs** (`jobs.py`): the full song takes ~30 s, so `/analyze`
+  answers at once from the top line and starts a job in a thread; the app
+  polls `GET /jobs/{id}` for the stage ("Separating the instruments…")
+  and swaps in the song's progression (the Original card) when it's done.
+  Models load once, on the first song, so melody takes stay fast.
+- **Pinned versions on purpose**: `requirements-songs.txt` pins torch and
+  torchaudio to 2.6, because Demucs uses torchaudio functions newer
+  releases removed — an example of a dependency's dependency setting your
+  ceiling.
+
 ## Loading model weights safely (`backend/app/songs/btc.py`)
 
 The song path uses pretrained models downloaded from other people's
@@ -575,9 +621,8 @@ repositories. How you load their files matters as much as what they do.
 
 ## Forward-looking (not built yet)
 
-- **Song uploads**: separating a mix into stems (Demucs), finding beats
-  (Beat This!) and recognising chords from audio (BTC), then showing each
-  part's role instead of every note at once — Parts 2 and 3 of the spec
+- **Instrument roles**: showing each stem's part (melody, bass line,
+  harmony style) instead of every note at once — Part 3 of the spec
 - **Style presets**: the corpus prior's blend and genre slices tuned per
   style (pop, folk, jazz)
 - **Distinct scale/mode detection** — today "key" and "scale" are the same

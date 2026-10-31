@@ -18,12 +18,20 @@ _MIN_NOTE = 0.08  # seconds; shorter notes are blips
 _FRAGMENT = 0.24  # seconds; a same-pitch piece this short is part of its neighbour
 
 
-def classify_input(notes: list[dict]) -> str:
+# Share of the signal's energy that's percussive above which a polyphonic
+# take counts as a band or a song: drums. Hummed takes and solo
+# instruments measure near 0.001, a mixed song around 0.05.
+PERCUSSIVE_MIX = 0.015
+
+
+def classify_input(notes: list[dict], percussive_share: float = 0.0) -> str:
     """'melody' for a single line, 'polyphonic' for one instrument playing
     chords, 'full_mix' for a band or a song.
 
-    Measured as the average number of confident notes sounding at once,
-    over the time anything is sounding at all.
+    Polyphony is the average number of confident notes sounding at once,
+    over the time anything is sounding at all. It can't tell a piano from
+    a band on its own, so drums (a percussive share of the energy, see
+    `percussive_share`) also make a polyphonic take a full mix.
     """
     confident = [n for n in notes if n["confidence"] >= _MIN_CONFIDENCE]
     if not confident:
@@ -45,9 +53,25 @@ def classify_input(notes: list[dict]) -> str:
     polyphony = weighted / busy if busy > 0 else 1.0
     if polyphony < 1.35:
         return "melody"
-    if polyphony < 4.0:
+    if polyphony < 4.0 and percussive_share < PERCUSSIVE_MIX:
         return "polyphonic"
     return "full_mix"
+
+
+def percussive_share(audio_path: str, seconds: float = 60.0) -> float:
+    """How much of the recording's energy is percussive (0..1), by splitting
+    it into harmonic and percussive parts (HPSS: sustained tones are
+    horizontal lines in a spectrogram, hits are vertical ones)."""
+    import librosa
+    import numpy as np
+
+    try:
+        y, _ = librosa.load(audio_path, sr=22050, mono=True, duration=seconds)
+    except Exception:
+        return 0.0
+    harmonic, percussive = librosa.effects.hpss(y)
+    total = float(np.sum(harmonic**2) + np.sum(percussive**2))
+    return float(np.sum(percussive**2)) / total if total > 0 else 0.0
 
 
 def extract_melody(notes: list[dict]) -> list[dict]:

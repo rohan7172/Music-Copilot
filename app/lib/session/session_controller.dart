@@ -91,6 +91,12 @@ class SessionController extends ChangeNotifier {
   Timer? _clickTimer;
   double? _firstClickAt;
 
+  /// While a song's own chords are being recognised in the background:
+  /// its stage ("Separating the instruments") and progress (0..1).
+  String? songStage;
+  double songProgress = 0;
+  Timer? _songPoll;
+
   /// Clock time a cadence last resolved during playback (V→I or IV→I into
   /// the final chord), for the mascot's happy beat.
   double? lastCadenceAt;
@@ -412,6 +418,8 @@ class SessionController extends ChangeNotifier {
   }
 
   void _settle(Analysis analysis) {
+    _stopSongPoll();
+    if (analysis.jobId != null) _pollSong(analysis.jobId!);
     suggestions = analysis.suggestions;
     melody = analysis.melody;
     routeNote = analysis.routeNote;
@@ -487,9 +495,63 @@ class SessionController extends ChangeNotifier {
     suggestions = null;
     melody = const [];
     routeNote = null;
+    _stopSongPoll();
     backingReady = false;
     lastCadenceAt = null;
     _lastSoundingChord = null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Songs
+
+  void _pollSong(String id) {
+    songStage = 'Starting';
+    songProgress = 0;
+    _songPoll = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
+      try {
+        final job = await _api.job(id);
+        if (_disposed || _songPoll == null) return;
+        if (job.status == 'running') {
+          songStage = job.stage;
+          songProgress = job.progress;
+        } else {
+          _stopSongPoll();
+          if (job.status == 'done' && job.result != null) {
+            _showSong(job.result!);
+          } else {
+            routeNote =
+                'Couldn’t recognise this song’s own chords (${job.error ?? 'unknown error'}). '
+                'The suggestions follow its top line.';
+          }
+        }
+        _changed();
+      } catch (e) {
+        debugPrint('Polling the song job failed: $e');
+      }
+    });
+  }
+
+  void _stopSongPoll() {
+    _songPoll?.cancel();
+    _songPoll = null;
+    songStage = null;
+  }
+
+  /// Swaps the quick melody-based answer for the song's real progression
+  /// (the Original card first) and its vocal melody, keeping playback.
+  void _showSong(Analysis song) {
+    suggestions = song.suggestions;
+    melody = song.melody;
+    routeNote = null;
+    selectedProgression = 0;
+    perBar = 1;
+    scene
+      ..notes = song.notes
+      ..key = song.suggestions.key
+      ..selected = null
+      ..selectedChord = null
+      ..settleStart = clock.value;
+    _showProgression();
   }
 
   // ---------------------------------------------------------------------
@@ -549,7 +611,18 @@ class SessionController extends ChangeNotifier {
         perBar: perBar,
       );
       if (_disposed) return;
-      suggestions = next;
+      // A song's recognised progression doesn't depend on the grid: keep it.
+      final original =
+          suggestions?.progressions
+              .where((p) => p.kind == 'original')
+              .toList() ??
+          const [];
+      suggestions = Suggestions(
+        grid: next.grid,
+        key: next.key,
+        progressions: [...original, ...next.progressions],
+        insight: suggestions?.insight ?? next.insight,
+      );
       scene.selectedChord = null;
       _showProgression();
     } catch (e) {
@@ -869,6 +942,7 @@ class SessionController extends ChangeNotifier {
     _player.dispose();
     _backing.dispose();
     _stopClick();
+    _stopSongPoll();
     clock.dispose();
     super.dispose();
   }

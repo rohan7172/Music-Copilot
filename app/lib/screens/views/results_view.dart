@@ -88,7 +88,13 @@ class ResultsView extends StatelessWidget {
               ],
             ],
           ),
-          if (controller.routeNote != null) ...[
+          if (controller.songStage != null) ...[
+            const SizedBox(height: Space.sm),
+            _SongProgress(
+              stage: controller.songStage!,
+              progress: controller.songProgress,
+            ),
+          ] else if (controller.routeNote != null) ...[
             const SizedBox(height: Space.sm),
             Text(
               controller.routeNote!,
@@ -286,7 +292,8 @@ class _ProgressionCard extends StatelessWidget {
           Row(
             children: [
               Text(progression.title, style: TextStyles.labelLg),
-              if (progression.source == 'llm') ...[
+              if (progression.source == 'llm' ||
+                  progression.source == 'recognised') ...[
                 const SizedBox(width: Space.sm),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -298,7 +305,9 @@ class _ProgressionCard extends StatelessWidget {
                     shape: StadiumBorder(),
                   ),
                   child: Text(
-                    'AI idea · checked',
+                    progression.source == 'llm'
+                        ? 'AI idea · checked'
+                        : 'from the recording',
                     style: TextStyles.labelSm.copyWith(
                       fontSize: 9,
                       letterSpacing: 0.2,
@@ -363,30 +372,34 @@ class _ChordPill extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel:
-          'Bar ${chord.bar + 1}: ${chord.symbol}, ${chord.roman}. Tap for why',
-      child: AnimatedContainer(
-        duration: Motion.quick,
-        constraints: const BoxConstraints(minWidth: 52),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(chord.symbol, style: TextStyles.labelLg.copyWith(color: fg)),
-            Text(
-              chord.roman,
-              style: TextStyles.labelSm.copyWith(
-                fontSize: 9,
-                letterSpacing: 0.2,
-                color: active
-                    ? Palette.onPrimary.withValues(alpha: 0.8)
-                    : Palette.outline,
+          'Bar ${chord.bar + 1}: ${chord.uncertain ? 'maybe ' : ''}${chord.symbol}, ${chord.roman}. Tap for why',
+      // A chord the recognition wasn't sure of looks unsure: faded, "maybe".
+      child: Opacity(
+        opacity: chord.uncertain && !active ? 0.55 : 1,
+        child: AnimatedContainer(
+          duration: Motion.quick,
+          constraints: const BoxConstraints(minWidth: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(chord.symbol, style: TextStyles.labelLg.copyWith(color: fg)),
+              Text(
+                chord.uncertain ? 'maybe' : chord.roman,
+                style: TextStyles.labelSm.copyWith(
+                  fontSize: 9,
+                  letterSpacing: 0.2,
+                  color: active
+                      ? Palette.onPrimary.withValues(alpha: 0.8)
+                      : Palette.outline,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -611,6 +624,53 @@ class _GridRow extends StatelessWidget {
           ),
           ...children,
         ],
+      ),
+    );
+  }
+}
+
+/// While the song's own chords are being found: what's happening, and how
+/// far along, under the quick melody-based answer.
+class _SongProgress extends StatelessWidget {
+  const _SongProgress({required this.stage, required this.progress});
+
+  final String stage;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Finding the song’s own chords: $stage',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(Space.md, 10, Space.md, 12),
+        decoration: BoxDecoration(
+          color: Palette.creamAlt,
+          borderRadius: BorderRadius.circular(Shape.panel),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Finding the song’s own chords · ${stage.toLowerCase()}',
+              style: TextStyles.labelMd,
+            ),
+            const SizedBox(height: Space.sm),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(end: progress.clamp(0.04, 1.0)),
+                duration: Motion.settle,
+                curve: Motion.curve,
+                builder: (context, value, _) => LinearProgressIndicator(
+                  value: value,
+                  minHeight: 4,
+                  backgroundColor: Palette.tint,
+                  color: Palette.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

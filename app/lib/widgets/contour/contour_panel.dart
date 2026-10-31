@@ -277,9 +277,11 @@ class _ContourPainter extends CustomPainter {
               ChordFit.colour => Palette.noteSoft.withValues(alpha: 0.4),
               ChordFit.clash => Palette.error.withValues(alpha: 0.14),
             };
+      // A recognised chord the model wasn't sure of is drawn fainter.
+      final sure = c.uncertain && !on ? 0.5 : 1.0;
       canvas.drawRRect(
         RRect.fromRectAndRadius(r, Radius.circular(r.height / 2)),
-        Paint()..color = fill.withValues(alpha: fill.a * a),
+        Paint()..color = fill.withValues(alpha: fill.a * a * sure),
       );
       final label = TextPainter(
         text: TextSpan(

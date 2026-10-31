@@ -101,6 +101,17 @@ class ApiService {
     );
   }
 
+  /// A background song analysis's progress, and its result once done.
+  Future<SongJob> job(String id) async {
+    final response = await http.get(Uri.parse('$baseUrl/jobs/$id'));
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return SongJob.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   /// A WAV of [chords] played as a soft pad, [duration] seconds long.
   Future<Uint8List> backing(
     List<ProgressionChord> chords,

@@ -19,6 +19,15 @@ def test_block_chords_are_polyphonic():
     assert classify_input(chords) == "polyphonic"
 
 
+def test_chords_with_drums_are_a_full_mix():
+    chords = []
+    for i in range(8):
+        t = i * 0.6
+        chords += [_note(48, t, t + 0.55), _note(52, t, t + 0.55), _note(55, t, t + 0.55)]
+    assert classify_input(chords, percussive_share=0.05) == "full_mix"
+    assert classify_input(notes(TWINKLE), percussive_share=0.05) == "melody"
+
+
 def test_dense_texture_is_a_full_mix():
     dense = []
     for i in range(8):

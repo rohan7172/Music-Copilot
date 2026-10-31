@@ -15,6 +15,7 @@ from app import synth
 from app.songs import jobs
 from app.harmony import without_overtones
 from app.notes import midi_to_note_name
+from app.melody import percussive_share
 from app.pipeline import analyze_notes, suggest
 from app.timing import BeatGrid
 
@@ -89,8 +90,13 @@ async def analyze(
         tmp.write(await file.read())
         audio_path = tmp.name
 
+    clipped = _clip_long_audio(audio_path)
+    if clipped:
+        audio_path = clipped
     notes = transcribe(audio_path)
-    result = analyze_notes(notes, bpm=bpm, first_beat=first_beat, meter=meter)
+    result = analyze_notes(
+        notes, bpm=bpm, first_beat=first_beat, meter=meter, percussive=percussive_share(audio_path)
+    )
 
     # A song, or chords on one instrument: the quick melody-based answer
     # comes back now, and the real progression follows from a background
@@ -106,6 +112,26 @@ async def analyze(
             result["job"] = {"id": job_id, "status": "running"}
             result["route_note"] = "Listening to each instrument to find the song's own chords…"
     return result
+
+
+_MAX_SECONDS = 90.0
+
+
+def _clip_long_audio(audio_path: str) -> str | None:
+    """A long upload (a whole song) is analysed from its first 90 seconds;
+    returns the path of that clip, or None if the audio is short enough."""
+    import librosa
+    import soundfile as sf
+
+    try:
+        if librosa.get_duration(path=audio_path) <= _MAX_SECONDS + 1:
+            return None
+        y, sr = librosa.load(audio_path, sr=44100, mono=False, duration=_MAX_SECONDS)
+    except Exception:
+        return None  # let transcription report a truly unreadable file
+    clip = audio_path + ".clip.wav"
+    sf.write(clip, y.T if y.ndim == 2 else y, sr)
+    return clip
 
 
 def transcribe(audio_path: str) -> list[dict]:
