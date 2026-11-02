@@ -3,7 +3,8 @@ plus suggestions for its melody.
 
 full mix:   separate stems -> beats on the mix -> BTC chord probabilities
             -> bass notes from the bass stem -> beat-synchronous decode
-            -> melody from the vocal stem -> harmoniser alternatives
+            -> melody from the vocal stem, or the instruments' top line when
+            nobody sings -> harmoniser alternatives (only for a sung melody)
 polyphonic: the same without separation; the melody is the top line.
 
 Long work, so it runs as a background job (see jobs.py) and reports its
@@ -20,7 +21,7 @@ import soundfile as sf
 
 from app.harmoniser import reasons, scoring
 from app.harmoniser.vocab import Key, chord_in_key
-from app.melody import extract_melody
+from app.melody import audible_notes, extract_melody, has_singing
 from app.onset import music_start_samples, trim_notes
 from app.pipeline import suggest
 from app.songs import btc, decode, drums, models, roles
@@ -169,22 +170,38 @@ def analyze_song(
     segs = decode.segments(path, confidence, beat_times, end)
 
     progress("Finding the melody", 0.8)
+    sung = True
     if "vocals" in stem_files:
-        all_notes: list[dict] = []
-        melody_notes = trim_notes(transcribe(stem_files["vocals"]), start)
+        level = float(np.sqrt(np.mean(mono**2)))
+        harmony_notes = transcribe(stem_files["other"])
+        melody_notes = trim_notes(
+            audible_notes(transcribe(stem_files["vocals"]), stems["vocals"], level, _RATE), start
+        )
+        # One voice is one line, on the chart as well as in the melody part.
+        melody_notes = melody = extract_melody(melody_notes)
+        if not has_singing(melody):
+            # Nobody sings, so the nearest thing to a tune is the instruments'
+            # top line. It's only a stand-in: it can jump octaves between
+            # parts, so chords aren't suggested or judged against it below.
+            sung = False
+            melody_notes = melody = extract_melody(
+                trim_notes(audible_notes(harmony_notes, stems["other"], level, _RATE), start)
+            )
     else:
         # Lead-in ghosts are trimmed once here, for the melody and the
         # harmony part alike.
-        all_notes = trim_notes(notes if notes is not None else transcribe(audio_path), start)
-        melody_notes = all_notes
-    melody = extract_melody(melody_notes)
+        harmony_notes = trim_notes(notes if notes is not None else transcribe(audio_path), start)
+        melody_notes = harmony_notes
+        melody = extract_melody(melody_notes)
 
     progress("Hearing what each instrument plays", 0.86)
     downbeats = [float(d) for d in downbeat_times]
-    parts = [_part("melody", "Melody", "vocals" if stem_files else None, melody, roles.melody_role(melody, segs))]
+    if sung:
+        parts = [_part("melody", "Melody", "vocals" if stem_files else None, melody, roles.melody_role(melody, segs))]
+    else:
+        parts = [_part("melody", "Top line", "other", melody, roles.top_line_role())]
     if "bass" in stem_files:
         parts.append(_part("bass", "Bass", "bass", bass_notes, roles.bass_role(bass_notes, segs, downbeats)))
-    harmony_notes = transcribe(stem_files["other"]) if "other" in stem_files else all_notes
     parts.append(_part("harmony", "Harmony", "other" if stem_files else None, harmony_notes, roles.harmony_role(harmony_notes)))
     grid = grid_from_beats(beat_times, downbeat_times)
     if "drums" in stem_files:
@@ -193,10 +210,11 @@ def analyze_song(
 
     progress("Suggesting alternatives", 0.92)
     key_info = key_dict(key)
-    original = describe_recognised(segs, melody, grid, key)
+    tune = melody if sung else []
+    original = describe_recognised(segs, tune, grid, key)
     # Skippable for a full mix's quick first answer: its background job
     # re-harmonises from the separated vocal melody anyway.
-    suggested = suggest(melody, grid, key=key_info, use_llm=use_llm) if melody and alternatives else {
+    suggested = suggest(tune, grid, key=key_info, use_llm=use_llm) if tune and alternatives else {
         "progressions": [], "insight": None, "grid": grid.to_dict(0, end)
     }
     return {

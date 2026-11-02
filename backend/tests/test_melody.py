@@ -1,4 +1,6 @@
-from app.melody import classify_input, detect_melody_key, extract_melody
+import numpy as np
+
+from app.melody import audible_notes, classify_input, detect_melody_key, extract_melody, has_singing
 from app.timing import BeatGrid, estimate_grid, grid_from_click
 from tests.melodies import C4, E4, G4, MINOR_TUNE, ODE_TO_JOY, TWINKLE, notes
 
@@ -97,3 +99,35 @@ def test_key_of_a_major_tune():
 def test_key_of_a_minor_tune():
     key = detect_melody_key(notes(MINOR_TUNE), BeatGrid(bpm=100, downbeat=0.0))
     assert key["name"] == "A minor"
+
+
+def _stem(loud_from: float, loud_to: float, seconds: float = 4.0, rate: int = 1000, level: float = 0.5):
+    """Silence, except a tone-loud stretch from `loud_from` to `loud_to`."""
+    stem = np.full(int(seconds * rate), 1e-4)
+    stem[int(loud_from * rate) : int(loud_to * rate)] = level
+    return stem
+
+
+def test_audible_notes_drop_a_confident_note_the_stem_has_no_sound_for():
+    # Basic Pitch hears pitch at any volume, so a separator's faint residue
+    # comes back as a confident note: only loudness gives it away.
+    leak, sung = _note(60, 0.5, 1.0, confidence=0.9), _note(64, 2.0, 3.0, confidence=0.5)
+    kept = audible_notes([leak, sung], _stem(2.0, 3.0), mix_level=0.5, rate=1000)
+    assert kept == [sung]
+
+
+def test_audible_notes_are_measured_against_the_mix():
+    note = _note(60, 2.0, 3.0)
+    stem = _stem(2.0, 3.0, level=0.02)
+    assert audible_notes([note], stem, mix_level=0.1, rate=1000) == [note]  # a fifth of the mix
+    assert audible_notes([note], stem, mix_level=0.5, rate=1000) == []  # a 25th of it
+
+
+def test_audible_notes_survive_a_note_past_the_end_of_the_audio():
+    assert audible_notes([_note(60, 9.0, 10.0)], _stem(0, 1), mix_level=0.5, rate=1000) == []
+
+
+def test_a_few_notes_of_residue_are_not_singing():
+    assert not has_singing([])
+    assert not has_singing([_note(60, t, t + 0.3) for t in range(6)])  # 1.8 s
+    assert has_singing([_note(60, t, t + 0.5) for t in range(10)])  # 5 s

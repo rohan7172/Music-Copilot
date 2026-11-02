@@ -138,11 +138,14 @@ class ResultsView extends StatelessWidget {
                   controller: controller,
                   onChordTap: (i) => _showChord(context, i),
                   label: switch (controller.lens) {
-                    'melody' => 'melody',
+                    'melody' => controller.parts.first.name.toLowerCase(),
                     'bass' => 'bass line',
                     'harmony' => 'harmony',
                     'drums' => 'drums',
-                    _ => controller.parts.isEmpty ? 'vocal contour' : 'melody',
+                    _ =>
+                      controller.parts.isEmpty
+                          ? 'vocal contour'
+                          : controller.parts.first.name.toLowerCase(),
                   },
                   laneLabels: controller.lens == 'drums'
                       ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}

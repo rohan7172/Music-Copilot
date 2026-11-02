@@ -6,6 +6,7 @@ a song, every instrument at once. The harmoniser needs a single tune, so
 this keeps the top line ("skyline"), merges repeats and drops blips.
 """
 
+import numpy as np
 from music21 import key as m21key
 from music21 import note as m21note
 from music21 import stream
@@ -17,6 +18,8 @@ _MIN_CONFIDENCE = 0.3
 _MIN_NOTE = 0.08  # seconds; shorter notes are blips
 _FRAGMENT = 0.24  # seconds; a same-pitch piece this short is part of its neighbour
 _LOWEST_MELODY = 40  # E2, the bottom of a bass voice
+_AUDIBLE_SHARE = 0.1  # of the mix's level; below this a stem's note is residue
+_MIN_SUNG_SECONDS = 4.0
 
 
 # Share of the signal's energy that's percussive above which a polyphonic
@@ -84,6 +87,29 @@ def percussive_share_samples(y, sr: int) -> float:
     harmonic, percussive = librosa.effects.hpss(clip)
     total = float(np.sum(harmonic**2) + np.sum(percussive**2))
     return float(np.sum(percussive**2)) / total if total > 0 else 0.0
+
+
+def audible_notes(notes: list[dict], stem: np.ndarray, mix_level: float, rate: int) -> list[dict]:
+    """The notes a separated stem actually has sound for.
+
+    Basic Pitch hears pitch at any volume, so the faint residue a separator
+    leaves in a stem (the synth riff in a vocal stem, before the singer comes
+    in) comes back as confident notes. Only their loudness gives them away:
+    on real songs the residue measures under 0.5% of the mix's level and
+    singing over 10%. `mix_level` is the whole recording's RMS.
+    """
+    kept = []
+    for n in notes:
+        sound = stem[int(n["start_time"] * rate) : int(n["end_time"] * rate)]
+        if len(sound) and np.sqrt(np.mean(sound**2)) >= _AUDIBLE_SHARE * mix_level:
+            kept.append(n)
+    return kept
+
+
+def has_singing(melody: list[dict]) -> bool:
+    """Enough sung notes to call it a voice, rather than the odd louder burst
+    of leakage in an instrumental."""
+    return sum(n["end_time"] - n["start_time"] for n in melody) >= _MIN_SUNG_SECONDS
 
 
 def extract_melody(notes: list[dict]) -> list[dict]:

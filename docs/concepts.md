@@ -621,6 +621,18 @@ about its role, measured, not guessed:
   (high: it sits "inside" the harmony; lower: passing and colour notes
   give it movement), and its range as the 5th–95th percentile of pitches
   so a few stray notes leaking into the vocal stem don't stretch it.
+- **Telling singing from residue** (`audible_notes` in `melody.py`) — a
+  separator never leaves a stem truly silent, and Basic Pitch hears pitch
+  at any volume, so faint leftovers come back as confident notes: 154 of
+  them in the vocal stem of an *instrumental*. Confidence can't catch them;
+  loudness can. Across real songs, residue measured under 0.5% of the mix's
+  level and singing over 10%, so a note needs 10%. The lesson in how this
+  was found: a recording that can't contain singing is ground truth for
+  what the leak looks like, which no amount of listening to one song gives.
+- **When nobody sings** (`has_singing`, under 4 s of notes) the part becomes
+  the instruments' "Top line". It can hop between instruments, so it's
+  labelled as a stand-in, and chords aren't suggested or judged against it:
+  a stand-in shouldn't quietly become the basis for advice.
 - **Bass** — how often its lowest note at a bar's first beat is the
   chord's root: usually high, because the bass is what tells your ear
   which chord you're on; lower means a walking line or inversions.

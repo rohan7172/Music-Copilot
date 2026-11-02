@@ -63,6 +63,15 @@ def melody_role(melody: list[dict], chords: list[dict]) -> dict:
     }
 
 
+def top_line_role() -> dict:
+    """When nobody sings, the melody lens shows the instruments' highest
+    notes, which can hop between parts, so it doesn't claim to be the tune."""
+    return {
+        "summary": "Nobody sings here, so this is the highest line the instruments play. It's often the tune, but it can jump between instruments.",
+        "detail": None,
+    }
+
+
 def bass_role(bass: list[dict], chords: list[dict], downbeats: list[float]) -> dict:
     """How often the bass plays the chord's root on a bar's first beat:
     the bass is usually what tells your ear which chord you're on."""

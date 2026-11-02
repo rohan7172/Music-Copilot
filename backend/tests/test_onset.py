@@ -168,3 +168,59 @@ def test_analyze_song_reuses_notes_instead_of_transcribing_the_mix(tmp_path, mon
     assert calls == []  # the mix wasn't transcribed again
     assert result["progressions"][0]["chords"][0]["symbol"] == "C"
     assert result["melody"]
+
+
+def _full_mix(tmp_path, monkeypatch, vocal_level):
+    """analyze_song on a fake full mix: a vocal stem at `vocal_level`, where
+    Basic Pitch "hears" a tune whatever its level, and a loud other stem."""
+    import soundfile as sf
+
+    from app.songs import models
+    from app.songs.btc import NUM_CLASSES
+    from app.songs.pipeline import analyze_song
+
+    sr = 44100
+    t = np.arange(8 * sr) / sr
+    tone = 0.3 * np.sin(2 * np.pi * 262 * t)
+    path = tmp_path / "song.wav"
+    sf.write(path, tone, sr)
+
+    def fake_probs(audio):
+        p = np.full((int(len(audio) / 2048) + 1, NUM_CLASSES), 1e-3)
+        p[:, 1] = 1.0
+        return p
+
+    silence = np.zeros_like(t)
+    stems = {"vocals": vocal_level * tone, "bass": silence, "other": tone, "drums": silence}
+    monkeypatch.setattr(models, "separate", lambda stereo, rate: stems)
+    monkeypatch.setattr(models, "beats", lambda mono, rate: (np.arange(0, 8, 0.5), np.arange(0, 8, 2.0)))
+    monkeypatch.setattr(models, "chord_probabilities", fake_probs)
+
+    tune = notes(TWINKLE[:8], bpm=120)
+    top = [{**n, "midi_pitch": n["midi_pitch"] + 12} for n in tune]
+
+    def transcribe(p):
+        return tune if "vocals" in p else top if "other" in p else []
+
+    result = analyze_song(str(path), transcribe, "full_mix", use_llm=False, start=0.0, work_dir=tmp_path / "work")
+    return result, tune, top
+
+
+def test_a_song_with_singing_takes_its_melody_from_the_voice(tmp_path, monkeypatch):
+    result, tune, _ = _full_mix(tmp_path, monkeypatch, vocal_level=1.0)
+    part = result["parts"][0]
+    assert (part["name"], part["stem"]) == ("Melody", "vocals")
+    assert [n["midi_pitch"] for n in result["melody"]] == [n["midi_pitch"] for n in tune]
+    assert len(result["progressions"]) > 1  # chords suggested for the tune
+
+
+def test_an_instrumental_shows_its_top_line_and_suggests_nothing_from_it(tmp_path, monkeypatch):
+    # The vocal stem is a separator's faint residue: Basic Pitch hears a tune
+    # in it, but it isn't one.
+    result, _, top = _full_mix(tmp_path, monkeypatch, vocal_level=1e-3)
+    part = result["parts"][0]
+    assert (part["name"], part["stem"]) == ("Top line", "other")
+    assert [n["midi_pitch"] for n in result["melody"]] == [n["midi_pitch"] for n in top]
+    assert [p["source"] for p in result["progressions"]] == ["recognised"]
+    # A chord isn't judged against a line that may not be the tune.
+    assert all(c["fit"] == "fits" for c in result["progressions"][0]["chords"])
