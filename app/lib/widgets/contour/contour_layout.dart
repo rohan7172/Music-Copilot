@@ -11,6 +11,66 @@ const _noteNames = [
 /// "C4" for MIDI 60.
 String midiName(int midi) => '${_noteNames[midi % 12]}${midi ~/ 12 - 1}';
 
+final _chordSymbol = RegExp(r'^([A-G][#b♯♭]?)(.*)$');
+
+/// A chord's name reduced to what a very narrow pill can hold: its root and
+/// whether it's minor, diminished or augmented. "Em7" is "Em", "Cmaj7" is "C".
+String shortChordName(String symbol) {
+  final match = _chordSymbol.firstMatch(symbol);
+  if (match == null) return symbol;
+  final root = match[1]!;
+  final quality = match[2]!;
+  if (quality.startsWith('maj')) return root;
+  if (quality.startsWith('m7b5') || quality.startsWith('dim')) return '$root°';
+  if (quality.startsWith('aug')) return '$root+';
+  if (quality.startsWith('m')) return '${root}m';
+  return root;
+}
+
+/// What to write in one chord's ribbon pill.
+class RibbonLabel {
+  const RibbonLabel(this.text, this.fontSize);
+
+  final String text;
+  final double fontSize;
+}
+
+const _ribbonFullSizes = [9.5, 8.5, 7.5];
+const _ribbonShortSizes = [8.5, 7.5];
+const _ribbonLabelPad = 2.0;
+
+/// The label for each of [rects]' chords, all in one style so the ribbon
+/// reads evenly: full names at the largest size where every one fits, then
+/// short names. When even those can't all fit (a long song's many bars), none
+/// is labelled: naming every other chord would make G-D-Em-C read as G-Em.
+/// [measure] is the width of a text at a font size.
+List<RibbonLabel?> ribbonLabels(
+  List<String> symbols,
+  List<Rect> rects,
+  double Function(String text, double fontSize) measure,
+) {
+  List<RibbonLabel>? allAt(List<String> names, double size) {
+    for (var i = 0; i < names.length; i++) {
+      if (measure(names[i], size) + _ribbonLabelPad > rects[i].width) {
+        return null;
+      }
+    }
+    return [for (final name in names) RibbonLabel(name, size)];
+  }
+
+  for (final size in _ribbonFullSizes) {
+    final labels = allAt(symbols, size);
+    if (labels != null) return labels;
+  }
+  final short = [for (final s in symbols) shortChordName(s)];
+  for (final size in _ribbonShortSizes) {
+    final labels = allAt(short, size);
+    if (labels != null) return labels;
+  }
+
+  return List.filled(symbols.length, null);
+}
+
 /// Where everything sits in the vocal-contour roll: time runs left to
 /// right, pitch bottom to top, each note a pill on its own pitch lane.
 /// Pure geometry, shared by the painter and tap handling, and unit-tested.

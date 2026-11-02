@@ -280,14 +280,45 @@ class _ContourPainter extends CustomPainter {
     if (chords.isEmpty) return;
     final settle = scene.settleStart ?? -10;
     final active = activeChord();
-    for (var i = 0; i < chords.length; i++) {
+    final rects = [
+      for (final c in chords) layout.chordRect(c.startTime, c.endTime),
+    ];
+    final labels = ribbonLabels(
+      [for (final c in chords) c.symbol],
+      rects,
+      _labelWidth,
+    );
+
+    void paintChord(int i) {
       final c = chords[i];
       final a = Curves.easeOutCubic.transform(
         ((now - settle - 0.5 - i * 0.05) / 0.4).clamp(0.0, 1.0),
       );
-      if (a <= 0) continue;
-      final r = layout.chordRect(c.startTime, c.endTime);
+      if (a <= 0) return;
       final on = i == active;
+      // The sounding chord always says its name, even on a ribbon too dense
+      // to label every chord.
+      final name =
+          labels[i] ?? (on ? RibbonLabel(shortChordName(c.symbol), 7.5) : null);
+      final label = name == null
+          ? null
+          : _ribbonLabel(
+              name,
+              (on ? Palette.onPrimary : Palette.ink).withValues(alpha: a),
+            );
+      var r = rects[i];
+      // ...and grows over its neighbours to fit it, since it's drawn last.
+      if (on && label != null && label.width + 6 > r.width) {
+        r = Rect.fromCenter(
+          center: r.center,
+          width: label.width + 6,
+          height: r.height,
+        );
+        if (r.left < 0) r = r.shift(Offset(-r.left, 0));
+        if (r.right > layout.size.width) {
+          r = r.shift(Offset(layout.size.width - r.right, 0));
+        }
+      }
       final fill = on
           ? Palette.primary
           : switch (c.fit) {
@@ -301,26 +332,39 @@ class _ContourPainter extends CustomPainter {
         RRect.fromRectAndRadius(r, Radius.circular(r.height / 2)),
         Paint()..color = fill.withValues(alpha: fill.a * a * sure),
       );
-      final label = TextPainter(
-        text: TextSpan(
-          text: c.symbol,
-          style: TextStyles.labelSm.copyWith(
-            fontSize: 9.5,
-            letterSpacing: -0.2,
-            color: (on ? Palette.onPrimary : Palette.ink).withValues(alpha: a),
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout();
-      if (label.width + 3 <= r.width) {
-        label.paint(
-          canvas,
-          Offset(r.center.dx - label.width / 2, r.center.dy - label.height / 2),
-        );
-      }
+      label?.paint(
+        canvas,
+        Offset(r.center.dx - label.width / 2, r.center.dy - label.height / 2),
+      );
     }
+
+    for (var i = 0; i < chords.length; i++) {
+      if (i != active) paintChord(i);
+    }
+    if (active != null && active < chords.length) paintChord(active);
   }
+
+  TextPainter _ribbonLabel(RibbonLabel label, Color color) => TextPainter(
+    text: TextSpan(
+      text: label.text,
+      style: TextStyles.labelSm.copyWith(
+        fontSize: label.fontSize,
+        letterSpacing: -0.2,
+        color: color,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+
+  /// Measured once per name and size: this runs for every chord, every frame.
+  double _labelWidth(String text, double fontSize) =>
+      _labelWidths[(text, fontSize)] ??= _ribbonLabel(
+        RibbonLabel(text, fontSize),
+        Palette.ink,
+      ).width;
+
+  final _labelWidths = <(String, double), double>{};
 
   void _paintThread(Canvas canvas, double reveal) {
     if (reveal <= 0) return;

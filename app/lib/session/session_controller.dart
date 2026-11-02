@@ -183,8 +183,20 @@ class SessionController extends ChangeNotifier {
       _checkAutoStop();
     }
     _trackPlayback();
+    _noticeActiveChord();
     clock.value = elapsed.inMicroseconds / 1e6;
   }
+
+  /// The contour repaints every frame, but the chord cards only rebuild when
+  /// told to, so tell them each time playback moves on to another chord.
+  void _noticeActiveChord() {
+    final now = activeChord;
+    if (now == _shownChord) return;
+    _shownChord = now;
+    _changed();
+  }
+
+  int? _shownChord;
 
   void _changed() {
     if (!_disposed) notifyListeners();

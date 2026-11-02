@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 
 import '../../models/harmony.dart';
 import '../../session/session_controller.dart';
@@ -28,17 +29,20 @@ class ResultsView extends StatelessWidget {
 
     final key = suggestions.key;
     final grid = suggestions.grid;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(
-        Space.margin,
-        Space.xs,
-        Space.margin,
-        Space.lg,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    // The top row and the transport stay put with only the middle scrolling,
+    // so scrolled content stops short of the liquid header and the play
+    // button is always in reach.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.margin,
+            Space.xs,
+            Space.margin,
+            0,
+          ),
+          child: Row(
             children: [
               // Icon-only so the key and tempo always fit beside it.
               RoundAction(
@@ -89,56 +93,73 @@ class ResultsView extends StatelessWidget {
               ],
             ],
           ),
-          if (controller.songStage != null) ...[
-            const SizedBox(height: Space.sm),
-            _SongProgress(
-              stage: controller.songStage!,
-              progress: controller.songProgress,
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (controller.songStage != null) ...[
+                  const SizedBox(height: Space.sm),
+                  _SongProgress(
+                    stage: controller.songStage!,
+                    progress: controller.songProgress,
+                  ),
+                ] else if (controller.routeNote != null) ...[
+                  const SizedBox(height: Space.sm),
+                  Text(
+                    controller.routeNote!,
+                    style: TextStyles.bodySm.copyWith(color: Palette.outline),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: Space.sm),
+                Center(child: SessionMascot(controller: controller, width: 96)),
+                if (suggestions.insight != null) ...[
+                  const SizedBox(height: Space.xs),
+                  Text(
+                    suggestions.insight!,
+                    style: TextStyles.labelMd.copyWith(height: 1.4),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: Space.md),
+                _ProgressionCards(
+                  controller: controller,
+                  onChordTap: (i) => _showChord(context, i),
+                ),
+                const SizedBox(height: Space.md),
+                if (controller.parts.isNotEmpty) ...[
+                  _PartLenses(controller: controller),
+                  const SizedBox(height: Space.md),
+                ],
+                ContourPanel(
+                  controller: controller,
+                  onChordTap: (i) => _showChord(context, i),
+                  label: switch (controller.lens) {
+                    'melody' => 'melody',
+                    'bass' => 'bass line',
+                    'harmony' => 'harmony',
+                    'drums' => 'drums',
+                    _ => controller.parts.isEmpty ? 'vocal contour' : 'melody',
+                  },
+                  laneLabels: controller.lens == 'drums'
+                      ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
+                      : null,
+                ),
+              ],
             ),
-          ] else if (controller.routeNote != null) ...[
-            const SizedBox(height: Space.sm),
-            Text(
-              controller.routeNote!,
-              style: TextStyles.bodySm.copyWith(color: Palette.outline),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: Space.sm),
-          Center(child: SessionMascot(controller: controller, width: 96)),
-          if (suggestions.insight != null) ...[
-            const SizedBox(height: Space.xs),
-            Text(
-              suggestions.insight!,
-              style: TextStyles.labelMd.copyWith(height: 1.4),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: Space.md),
-          _ProgressionCards(
-            controller: controller,
-            onChordTap: (i) => _showChord(context, i),
           ),
-          const SizedBox(height: Space.md),
-          if (controller.parts.isNotEmpty) ...[
-            _PartLenses(controller: controller),
-            const SizedBox(height: Space.md),
-          ],
-          ContourPanel(
-            controller: controller,
-            onChordTap: (i) => _showChord(context, i),
-            label: switch (controller.lens) {
-              'melody' => 'melody',
-              'bass' => 'bass line',
-              'harmony' => 'harmony',
-              'drums' => 'drums',
-              _ => controller.parts.isEmpty ? 'vocal contour' : 'melody',
-            },
-            laneLabels: controller.lens == 'drums'
-                ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
-                : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.margin,
+            Space.sm,
+            Space.margin,
+            Space.xs,
           ),
-          const SizedBox(height: Space.lg),
-          Row(
+          child: Row(
             children: [
               RoundAction(
                 icon: Icons.repeat_rounded,
@@ -177,8 +198,8 @@ class ResultsView extends StatelessWidget {
               ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -278,7 +299,7 @@ class _ProgressionCardsState extends State<_ProgressionCards> {
   }
 }
 
-class _ProgressionCard extends StatelessWidget {
+class _ProgressionCard extends StatefulWidget {
   const _ProgressionCard({
     required this.progression,
     required this.selected,
@@ -292,13 +313,60 @@ class _ProgressionCard extends StatelessWidget {
   final void Function(int index) onChordTap;
 
   @override
+  State<_ProgressionCard> createState() => _ProgressionCardState();
+}
+
+class _ProgressionCardState extends State<_ProgressionCard> {
+  final _chordScroll = ScrollController();
+  final _pillKeys = <GlobalKey>[];
+
+  @override
+  void didUpdateWidget(_ProgressionCard old) {
+    super.didUpdateWidget(old);
+    final active = widget.activeChord;
+    if (active != null && active != old.activeChord) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(active));
+    }
+  }
+
+  /// Slides the chord row so the chord sounding now stays in view.
+  void _reveal(int index) {
+    if (!mounted || !_chordScroll.hasClients || index >= _pillKeys.length) {
+      return;
+    }
+    final pill = _pillKeys[index].currentContext?.findRenderObject();
+    if (pill == null) return;
+    final position = _chordScroll.position;
+    // Only this row's own viewport, not `ensureVisible`: that would also
+    // scroll the page and swipe the cards as the music plays.
+    final target = RenderAbstractViewport.of(pill)
+        .getOffsetToReveal(pill, 0.5)
+        .offset;
+    _chordScroll.animateTo(
+      target.clamp(position.minScrollExtent, position.maxScrollExtent),
+      duration: Motion.settle,
+      curve: Motion.curve,
+    );
+  }
+
+  @override
+  void dispose() {
+    _chordScroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final progression = widget.progression;
+    while (_pillKeys.length < progression.chords.length) {
+      _pillKeys.add(GlobalKey());
+    }
     return AnimatedContainer(
       duration: Motion.settle,
       curve: Motion.curve,
       padding: const EdgeInsets.fromLTRB(Space.md, 14, Space.md, 12),
       decoration: BoxDecoration(
-        color: selected ? Palette.container : Palette.creamAlt,
+        color: widget.selected ? Palette.container : Palette.creamAlt,
         borderRadius: BorderRadius.circular(Shape.panel),
       ),
       child: Column(
@@ -346,14 +414,24 @@ class _ProgressionCard extends StatelessWidget {
           const Spacer(),
           SizedBox(
             height: 52,
-            child: ListView.separated(
+            // Every pill is built, not just those in view, so the one
+            // sounding can always be found and scrolled to.
+            child: SingleChildScrollView(
+              controller: _chordScroll,
               scrollDirection: Axis.horizontal,
-              itemCount: progression.chords.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 6),
-              itemBuilder: (context, i) => _ChordPill(
-                chord: progression.chords[i],
-                active: i == activeChord,
-                onTap: () => onChordTap(i),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < progression.chords.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 6),
+                    _ChordPill(
+                      key: _pillKeys[i],
+                      chord: progression.chords[i],
+                      active: i == widget.activeChord,
+                      onTap: () => widget.onChordTap(i),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
@@ -365,6 +443,7 @@ class _ProgressionCard extends StatelessWidget {
 
 class _ChordPill extends StatelessWidget {
   const _ChordPill({
+    super.key,
     required this.chord,
     required this.active,
     required this.onTap,
@@ -663,7 +742,11 @@ class _PartLenses extends StatelessWidget {
         SectionLabel(
           'parts',
           trailing: Text(
-            part?.stem != null ? 'playing alone' : 'tap to hear one alone',
+            part?.stem == null
+                ? 'tap to hear one alone'
+                : controller.isPlaying
+                ? 'playing alone'
+                : 'press play to hear it alone',
             style: TextStyles.labelSm.copyWith(
               color: Palette.outline,
               letterSpacing: 0.2,

@@ -50,6 +50,15 @@ The old app kept everything — microphone, backend call, playback, drawing
   results, play/pause); small pieces like the recording timer or the
   "sounding now" label rebuild on `clock` (every frame) — so a per-frame
   change never rebuilds the whole screen
+- Repainting isn't rebuilding: a painter tied to `clock` redraws by itself,
+  but ordinary widgets only update on a notification. So a value that
+  changes during playback can look right on the contour and stale on the
+  chord cards, unless the controller notifies when it changes
+  (`_noticeActiveChord`, once per chord rather than once per frame)
+- `RenderAbstractViewport.getOffsetToReveal` — works out how far one
+  scrolling row must move to show a child. `Scrollable.ensureVisible` would
+  be shorter, but it scrolls every scrollable above the child too, so the
+  page and the card swiper would lurch along with the music
 - One view per phase (`screens/views/`): `IdleView`, `ListeningView`
   (recording *and* analyzing — sharing one view is what lets the hand-off
   animate in place), `ResultsView`, `ErrorView`. `SessionScreen` just
@@ -145,6 +154,10 @@ detect more than loudness:
 - Density-aware labels: pills are widened to fit their note name only when
   every note can have one without overlapping (`pillFloor`); in a dense
   take the pills stay narrow and only the sounding note is labelled
+- All-or-nothing chord labels (`ribbonLabels`): the ribbon shrinks, then
+  shortens, every name together. If even short names can't all fit, none
+  is shown except the sounding chord's, because labelling every other pill
+  would make G–D–Em–C read as G–Em: a wrong answer is worse than no label
 - `Path.computeMetrics()` / `extractPath` — how the dashed melody thread
   is drawn: walk along the curve's length and draw every other short
   stretch
