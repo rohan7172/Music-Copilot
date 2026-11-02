@@ -3,8 +3,7 @@
   "configurations": [
     {
       "name": "music-copilot-dev",
-      "runtimeExecutable": "/bin/bash",
-      "runtimeArgs": ["-c", "cd /Users/rohansuresh/Documents/PROJECTS/music_copilot && NO_BROWSER=1 ./dev.sh"],
+      "url": "http://localhost:8080",
       "port": 8080
     }
   ]
