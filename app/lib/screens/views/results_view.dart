@@ -100,6 +100,19 @@ class ResultsView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (controller.track != null) ...[
+                  const SizedBox(height: Space.sm),
+                  Text(
+                    '${controller.track!.title} · ${controller.track!.artist}',
+                    style: TextStyles.labelLg,
+                    textAlign: TextAlign.center,
+                  ),
+                  Text(
+                    'From Apple’s 30 s preview, so these are that part’s chords',
+                    style: TextStyles.bodySm.copyWith(color: Palette.outline),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 if (controller.songStage != null) ...[
                   const SizedBox(height: Space.sm),
                   _SongProgress(

@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from app import synth
+from app import catalog, synth
 from app.songs import jobs
 from app.harmony import without_overtones
 from app.harmoniser.voices import harmonies
@@ -99,6 +99,34 @@ async def analyze(
     # worker thread: done directly in this async handler it would block
     # the event loop, stalling every other request (job polling included).
     return await run_in_threadpool(_analyze_file, audio_path, bpm, first_beat, meter)
+
+
+@app.get("/search")
+def search_songs(q: str = "") -> dict:
+    """Songs matching a name, each with a 30-second preview to analyse."""
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Type a song or artist to search for")
+    try:
+        return {"results": catalog.search(q.strip())}
+    except catalog.CatalogError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.post("/analyze_track")
+async def analyze_track(body: dict = Body(...)) -> dict:
+    """Analyses a searched song's preview clip, like an uploaded file."""
+    try:
+        track_id = int(body["id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Send the id of a searched song")
+    try:
+        path, track, url = await run_in_threadpool(catalog.preview, track_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except catalog.CatalogError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    result = await run_in_threadpool(_analyze_file, path, None, None, None)
+    return {**result, "track": track, "preview_url": url}
 
 
 def _analyze_file(audio_path: str, bpm: float | None, first_beat: float | None, meter: int | None) -> dict:

@@ -81,7 +81,7 @@ class ListeningView extends StatelessWidget {
             duration: Motion.settle,
             child: Text(
               analyzing
-                  ? 'Finding the notes'
+                  ? controller.track?.title ?? 'Finding the notes'
                   : controller.songMode
                   ? 'Listening to the song'
                   : 'I’m listening',
@@ -160,7 +160,10 @@ class ListeningView extends StatelessWidget {
                     height: 56,
                     child: Center(
                       child: Text(
-                        controller.songMode
+                        controller.track != null
+                            ? 'Listening to a 30 s preview of ${controller.track!.artist}’s '
+                                  'recording: its beat, key and chords…'
+                            : controller.songMode
                             ? 'Finding its beat, key and chords, then each part…'
                             : 'Finding the tune, its beat and key, then chords for it…',
                         style: TextStyles.bodyMd,

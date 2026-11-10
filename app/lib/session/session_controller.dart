@@ -14,6 +14,7 @@ import '../audio/read_recording.dart';
 import '../audio/waveform.dart';
 import '../models/harmony.dart';
 import '../models/note.dart';
+import '../models/song.dart';
 import '../note_range.dart';
 import '../services/api_service.dart';
 import 'scene.dart';
@@ -562,6 +563,42 @@ class SessionController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------
+  // Searching for a song
+
+  /// The searched song being analysed or shown, or null for a take or file.
+  SongHit? track;
+
+  /// Songs matching [query], for the search field.
+  Future<List<SongHit>> searchSongs(String query) => _api.searchSongs(query);
+
+  /// Analyses a searched song from its 30-second preview.
+  Future<void> analyzeTrack(SongHit hit) async {
+    noteInteraction();
+    await _resetPlayer();
+    _clearResults();
+    track = hit;
+    songMode = false;
+    scene.liveDuration = 0;
+    _beginAnalyzing();
+
+    try {
+      final (analysis, previewUrl) = await _api.analyzeTrack(hit.id);
+      await _letAnalyzingBreathe();
+      if (_disposed) return;
+      unawaited(_loadPlayback(previewUrl, remote: true));
+      final notes = analysis.notes;
+      final duration = notes.isEmpty
+          ? 1.0
+          : notes.map((n) => n.endTime).reduce(math.max) + 0.2;
+      scene.waveform = Waveform.fromNoteActivity(notes, duration);
+      _settle(analysis);
+    } catch (e) {
+      if (_disposed) return;
+      _fail(_analysisError(e));
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Phase changes
 
   void _beginAnalyzing() {
@@ -664,6 +701,7 @@ class SessionController extends ChangeNotifier {
     suggestions = null;
     melody = const [];
     routeNote = null;
+    track = null;
     _stopSongPoll();
     _songJobId = null;
     parts = const [];

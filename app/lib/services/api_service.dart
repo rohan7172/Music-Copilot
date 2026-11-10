@@ -6,6 +6,7 @@ import 'package:http_parser/http_parser.dart';
 
 import '../models/harmony.dart';
 import '../models/note.dart';
+import '../models/song.dart';
 
 final _mediaTypesByExtension = {
   'wav': MediaType('audio', 'wav'),
@@ -73,6 +74,40 @@ class ApiService {
     }
 
     return Analysis.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Songs matching [query] in Apple's catalogue, each with a preview.
+  Future<List<SongHit>> searchSongs(String query) async {
+    final uri = Uri.parse('$baseUrl/search')
+        .replace(queryParameters: {'q': query});
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return [
+      for (final r in json['results'] as List<dynamic>)
+        SongHit.fromJson(r as Map<String, dynamic>),
+    ];
+  }
+
+  /// Analyses a searched song's 30-second preview, like an uploaded file.
+  /// Returns the analysis and the preview's URL, to play it back.
+  Future<(Analysis, String)> analyzeTrack(int id) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/analyze_track'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'id': id}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return (Analysis.fromJson(json), json['preview_url'] as String);
   }
 
   /// Re-suggests for an already-analyzed melody after a grid nudge or key

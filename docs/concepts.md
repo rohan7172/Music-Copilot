@@ -672,9 +672,32 @@ quickly from the top line, then separates the parts in a job.
   either: the song has its own beat.
 - **Why not Spotify?** Streaming services' APIs give a track's *name*,
   not its audio (Spotify dropped previews for new apps in 2024 and
-  retired its audio-analysis endpoints), so the sound has to come from
-  the mic anyway. Naming the song would need an audio fingerprint lookup
-  (e.g. AcoustID) — not built.
+  retired its audio-analysis endpoints). Searching by name (next section)
+  uses Apple's previews instead.
+
+## Searching for a song by name (`backend/app/catalog.py`)
+
+The search field on the start screen asks the backend's `GET /search`,
+which asks Apple's public **iTunes Search API**: no account, no key.
+Each result has an official **30-second preview** clip. Picking one calls
+`POST /analyze_track`, which downloads the preview and runs it through
+the same path as an uploaded file (quick answer, then the separation job).
+
+- **Only a preview, not the song**: full tracks are licensed audio that
+  no free API hands out, and scraping a video site breaks its terms and
+  breaks often. 30 s is usually the chorus or hook, which Apple chooses;
+  the results screen says so, because the chords are that part's chords.
+- **The server takes an id, never a URL**: if the app could send any URL
+  for the server to download, anyone reaching the server could make it
+  fetch addresses on its own network (server-side request forgery). So
+  the app sends a track id, the server looks the preview up itself, and
+  it only downloads `https://` from Apple's hosts.
+- **Debounced typing**: the field waits ~350 ms after the last key before
+  searching, and drops answers to older queries, so fast typing doesn't
+  fire a request per letter or show stale results.
+- **Images across origins on the web**: Apple's image server doesn't send
+  CORS headers, so Flutter web can't paint the cover into its canvas; the
+  `webHtmlElementStrategy` option shows it as a plain `<img>` instead.
 
 ## What each instrument is doing (`backend/app/songs/roles.py`)
 
