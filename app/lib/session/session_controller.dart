@@ -34,7 +34,8 @@ class SessionError {
 class MixToggle {
   const MixToggle(this.id, this.label, {this.part});
 
-  /// The track it switches: "take", "guide", `stem:NAME` or `line:ID`.
+  /// The track it switches: "take", "guide", "chords", `stem:NAME` or
+  /// `line:ID`.
   final String id;
   final String label;
 
@@ -744,6 +745,7 @@ class SessionController extends ChangeNotifier {
       out.add(const MixToggle('take', 'Recording'));
       if (_hasTune) out.add(const MixToggle('guide', 'Melody'));
     }
+    if (scene.chords.isNotEmpty) out.add(const MixToggle('chords', 'Chords'));
     // Short names ("High", "Low", "Held"): they sit under a "harmonies"
     // heading, three to a row, with room for the tick when on.
     for (final h in harmonies) {
@@ -871,7 +873,6 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Backing
 
-  void toggleBacking() => toggleTrack('chords');
 
   Future<void> _loadBacking() async {
     final chords = scene.chords;

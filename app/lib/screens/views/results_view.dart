@@ -164,6 +164,7 @@ class ResultsView extends StatelessWidget {
             Space.xs,
           ),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               RoundAction(
                 icon: Icons.repeat_rounded,
@@ -184,22 +185,8 @@ class ResultsView extends StatelessWidget {
                     : 'Play the take with these chords',
                 onTap: controller.playbackReady ? controller.togglePlay : null,
               ),
-              const SizedBox(width: Space.md),
-              Expanded(
-                child: PillButton(
-                  label: controller.withBacking ? 'chords on' : 'chords off',
-                  icon: controller.withBacking
-                      ? Icons.piano_rounded
-                      : Icons.piano_off_rounded,
-                  tone: controller.withBacking ? PillTone.soft : PillTone.quiet,
-                  height: 48,
-                  expand: true,
-                  textStyle: TextStyles.labelMd.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  onTap: controller.toggleBacking,
-                ),
-              ),
+              // Balances the loop button, keeping play centred.
+              const SizedBox(width: Space.md + 48),
             ],
           ),
         ),
@@ -228,8 +215,7 @@ class ResultsView extends StatelessWidget {
 /// What you hear, as switches: each part of the recording and each
 /// harmony line turns on and off on its own, so any combination plays
 /// together (the low harmony with the bass and drums, say, or just the
-/// high harmony with the melody). The chords' pad is the transport's
-/// switch. Turning a part on shows its notes and role; turning a harmony
+/// high harmony with the melody, or the chords alone). Turning a part on shows its notes and role; turning a harmony
 /// on draws it in the contour and says why it works.
 class _Mixer extends StatelessWidget {
   const _Mixer({required this.controller});

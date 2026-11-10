@@ -586,8 +586,8 @@ showing (the best harmony depends on the chords under it).
   "Melody" (the take itself); a song, once separated, is its parts
   (vocals, bass, other instruments, drums), all on, with the full
   recording muted underneath as the clock; chords on one instrument are
-  "Recording" plus "Melody" sung by the synth voice. The chord pad keeps
-  its own switch by the play button.
+  "Recording" plus "Melody" sung by the synth voice. The chosen
+  progression's pad is a "Chords" switch like the rest.
 
 ## Key and chord detection from notes (`backend/app/harmony.py`, legacy)
 
