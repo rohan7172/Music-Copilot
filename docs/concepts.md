@@ -575,13 +575,19 @@ showing (the best harmony depends on the chords under it).
   and a **vibrato** (a 5 Hz pitch wobble) that eases in after the note
   starts, as singers do. The wobbling frequency is integrated into a phase
   (`cumsum`) so the pitch bends smoothly instead of clicking.
-- **Hearing it alone, with the melody, or with the music**: the take player
-  always runs, because its position is the clock every other track follows;
-  leaving it out of a mix means muting it, not stopping it. "With the
-  melody" plays the take itself for a hummed tune, a song's separated vocal
-  stem, or the melody sung by the synth voice when neither exists. "With the
-  music" plays the chord pad for a hummed tune, or a song's *instrumental*
-  (every separated stem but the vocals, summed by the song job).
+- **A mixer of switches**: every part of the recording and every harmony
+  line is its own track with its own player, turned on and off
+  independently, so any combination plays (the low harmony with the bass
+  and drums, both harmonies with the melody...). The take player always
+  runs, because its position is the clock every other track follows;
+  leaving the recording out means muting it, not stopping it. Each track
+  starts, stops and seeks to the clock's position as it's switched.
+- **Which switches exist depends on the take**: a hummed tune is
+  "Melody" (the take itself); a song, once separated, is its parts
+  (vocals, bass, other instruments, drums), all on, with the full
+  recording muted underneath as the clock; chords on one instrument are
+  "Recording" plus "Melody" sung by the synth voice. The chord pad keeps
+  its own switch by the play button.
 
 ## Key and chord detection from notes (`backend/app/harmony.py`, legacy)
 
@@ -676,11 +682,12 @@ about its role, measured, not guessed:
   notes start: many notes starting within 50 ms of each other = strummed
   block chords; one after another = arpeggios; few long notes = pads.
 - **Drums** — see "Recognising the drums" below.
-- **Soloing a part**: the stems are saved and served from
-  `/jobs/{id}/stems/{name}`; choosing a lens in the app swaps the player to
-  that stem's URL and seeks to the same position. The endpoint only
-  accepts the four known stem names and an alphanumeric job id, so a
-  request can't reach other files (no path traversal).
+- **Hearing parts on their own**: the stems are saved and served from
+  `/jobs/{id}/stems/{name}`, and the app streams each into its own player
+  so parts can be switched on and off (see "A mixer of switches"). Turning
+  a part on also shows its notes and role. The endpoint only accepts the
+  known stem names and an alphanumeric job id, so a request can't reach
+  other files (no path traversal).
 
 ## Recognising the drums (`backend/app/songs/drums.py`)
 

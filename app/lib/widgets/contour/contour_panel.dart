@@ -22,7 +22,7 @@ class ContourPanel extends StatelessWidget {
     this.onChordTap,
     this.label = 'vocal contour',
     this.laneLabels,
-    this.overlay = const [],
+    this.overlays = const [],
   });
 
   /// Named rows (note number → name, lowest note first) instead of pitch
@@ -38,8 +38,8 @@ class ContourPanel extends StatelessWidget {
   /// progression's chords).
   final void Function(int index)? onChordTap;
 
-  /// A harmony line to draw with the notes, as a thin second voice.
-  final List<Note> overlay;
+  /// Harmony lines to draw with the notes, each a thin second voice.
+  final List<List<Note>> overlays;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +77,7 @@ class ContourPanel extends StatelessWidget {
                   notes: notes,
                   duration: scene.duration,
                   lanes: laneLabels?.keys.toList(),
-                  overlay: overlay,
+                  overlays: overlays,
                 );
                 return Semantics(
                   label:
@@ -464,34 +464,34 @@ class _ContourPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// The harmony line: slim bars under the melody's pills, so the two
-  /// voices read as a pair without the second one hiding the first.
+  /// Harmony lines: slim bars under the melody's pills, so the voices
+  /// read as a group without hiding the tune. Each line has its own shade.
   void _paintOverlay(Canvas canvas, double reveal) {
-    if (reveal <= 0 || layout.overlay.isEmpty) return;
+    if (reveal <= 0 || layout.overlays.isEmpty) return;
+    const shades = [Palette.fluidDeep, Palette.fluid, Palette.primary];
     final playhead = scene.playhead;
     final limitX = layout.left + layout.width * reveal;
     canvas.save();
     canvas.clipRect(Rect.fromLTRB(0, 0, limitX, layout.size.height));
-    for (final note in layout.overlay) {
-      final left = layout.xForTime(note.startTime);
-      final right = math.max(left + 6, layout.xForTime(note.endTime));
-      final y = layout.yForMidi(note.midiPitch);
-      final sounding =
-          playhead != null &&
-          playhead >= note.startTime &&
-          playhead < note.endTime;
-      final h = sounding ? 8.0 : 6.0;
-      final r = RRect.fromRectAndRadius(
-        Rect.fromLTRB(left, y - h / 2, right, y + h / 2),
-        Radius.circular(h / 2),
-      );
-      canvas.drawRRect(
-        r,
-        Paint()
-          ..color = (sounding ? Palette.fluidDeep : Palette.fluid).withValues(
-            alpha: sounding ? 0.95 : 0.6,
+    for (var k = 0; k < layout.overlays.length; k++) {
+      final shade = shades[k % shades.length];
+      for (final note in layout.overlays[k]) {
+        final left = layout.xForTime(note.startTime);
+        final right = math.max(left + 6, layout.xForTime(note.endTime));
+        final y = layout.yForMidi(note.midiPitch);
+        final sounding =
+            playhead != null &&
+            playhead >= note.startTime &&
+            playhead < note.endTime;
+        final h = sounding ? 8.0 : 6.0;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTRB(left, y - h / 2, right, y + h / 2),
+            Radius.circular(h / 2),
           ),
-      );
+          Paint()..color = shade.withValues(alpha: sounding ? 0.95 : 0.6),
+        );
+      }
     }
     canvas.restore();
   }

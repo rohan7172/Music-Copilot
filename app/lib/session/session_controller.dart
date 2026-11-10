@@ -29,13 +29,25 @@ class SessionError {
   final String? detail;
 }
 
-/// How the chosen harmony line is heard: not at all (the usual take +
-/// chords), on its own, with just the sung melody, or with just the music.
-enum HarmonyMix { off, alone, withMelody, withMusic }
+/// One thing that can be heard in the mix, turned on and off by a chip:
+/// a part of the recording, a harmony line, or the melody's guide voice.
+class MixToggle {
+  const MixToggle(this.id, this.label, {this.part});
 
-/// A synthesized track (the chord pad, a harmony line, the melody as a
-/// guide) played in step with the take. Each load gets a fresh player,
-/// and a load that a newer one overtook is thrown away.
+  /// The track it switches: "take", "guide", `stem:NAME` or `line:ID`.
+  final String id;
+  final String label;
+
+  /// For a song's part: its id ("melody", "bass"...), for its role card.
+  final String? part;
+
+  bool get isHarmony => id.startsWith('line:');
+}
+
+/// One track played in step with the take: a song's separated stem
+/// (streamed), or synthesized audio (the chord pad, a harmony line, the
+/// melody's guide voice). Each load gets a fresh player, and a load that a
+/// newer one overtook is thrown away.
 class _AuxTrack {
   _AuxTrack(this.name);
 
@@ -44,24 +56,36 @@ class _AuxTrack {
   bool ready = false;
   int _request = 0;
 
-  /// Fetches and loads new audio; false if it was overtaken or failed.
-  Future<bool> load(Future<Uint8List> Function() fetch) async {
+  /// Fetches WAV bytes and loads them; false if overtaken or failed.
+  Future<bool> load(Future<Uint8List> Function() fetch) =>
+      _install((fresh, request) async {
+        final bytes = await fetch();
+        if (request != _request) return;
+        if (kIsWeb) {
+          await fresh.setUrl(
+            Uri.dataFromBytes(bytes, mimeType: 'audio/wav').toString(),
+          );
+        } else {
+          final dir = await getTemporaryDirectory();
+          final file = File(
+            '${dir.path}/${name.replaceAll(':', '_')}_$request.wav',
+          );
+          await file.writeAsBytes(bytes);
+          await fresh.setFilePath(file.path);
+        }
+      });
+
+  /// Streams audio from [url] (a song's stem).
+  Future<bool> loadUrl(String url) => _install((fresh, _) => fresh.setUrl(url));
+
+  Future<bool> _install(
+    Future<void> Function(AudioPlayer fresh, int request) set,
+  ) async {
     final request = ++_request;
     ready = false;
+    final fresh = AudioPlayer();
     try {
-      final bytes = await fetch();
-      if (request != _request) return false;
-      final fresh = AudioPlayer();
-      if (kIsWeb) {
-        await fresh.setUrl(
-          Uri.dataFromBytes(bytes, mimeType: 'audio/wav').toString(),
-        );
-      } else {
-        final dir = await getTemporaryDirectory();
-        final file = File('${dir.path}/${name}_$request.wav');
-        await file.writeAsBytes(bytes);
-        await fresh.setFilePath(file.path);
-      }
+      await set(fresh, request);
       if (request != _request) {
         await fresh.dispose();
         return false;
@@ -74,6 +98,7 @@ class _AuxTrack {
     } catch (e) {
       // The take still plays without this track.
       debugPrint('Could not load $name: $e');
+      await fresh.dispose();
       return false;
     }
   }
@@ -137,22 +162,31 @@ class SessionController extends ChangeNotifier {
   /// True while re-suggesting after a grid nudge.
   bool regridding = false;
 
-  /// Whether the chosen progression plays under the take.
-  bool withBacking = true;
-  bool get backingReady => _backing.ready;
-  final _backing = _AuxTrack('backing');
+  /// Every track that plays in step with the take, by id: "chords" (the
+  /// progression's pad), "guide" (the melody sung by the synth voice),
+  /// `stem:NAME` (a song's separated part), `line:ID` (a harmony line).
+  final Map<String, _AuxTrack> _tracks = {};
+  _AuxTrack _track(String id) => _tracks.putIfAbsent(id, () => _AuxTrack(id));
+
+  /// Which tracks are in the mix ("take" is the recording itself). Each is
+  /// turned on and off on its own, so any combination can be heard.
+  final Set<String> _on = {};
+  bool isOn(String id) => _on.contains(id);
+
+  /// Whether the chosen progression plays under the take; remembered
+  /// from one take to the next.
+  bool get withBacking => _on.contains('chords');
+  bool get backingReady => _track('chords').ready;
+  bool _chordsWanted = true;
 
   /// Lines a second singer could sing with the melody, over the chosen
-  /// progression (High, Low, Held), and which one is chosen.
+  /// progression (High, Low, Held).
   List<HarmonyLine> harmonies = const [];
-  int selectedHarmony = 0;
-  HarmonyMix harmonyMix = HarmonyMix.off;
   int _harmoniesRequest = 0;
-  final _harmonyTrack = _AuxTrack('harmony');
 
-  /// The melody sung by the synth voice: what "with the melody" plays when
-  /// no recording of the singing on its own is available.
-  final _guide = _AuxTrack('guide');
+  /// The harmony line whose explanation is showing: the one most recently
+  /// turned on.
+  String? _focusedLine;
 
   /// "melody", "polyphonic" or "full_mix": what the take turned out to be.
   String route = 'melody';
@@ -171,20 +205,11 @@ class SessionController extends ChangeNotifier {
   Timer? _songPoll;
   String? _songJobId;
 
-  /// For a song: each instrument's part, and which one the screen is
-  /// showing ("mix" for everything together).
+  /// For a song: each instrument's part, and which one the contour is
+  /// showing: the part most recently turned on ("mix" for every note).
   List<SongPart> parts = const [];
   String lens = 'mix';
   List<Note> _mixNotes = const [];
-
-  /// What the take player plays when no part is soloed.
-  String? _takeSource;
-
-  /// What the take player has loaded right now.
-  String? _loadedSource;
-
-  /// Play was pressed while the take player was loading.
-  bool _playWhenReady = false;
 
   /// Clock time a cadence last resolved during playback (V→I or IV→I into
   /// the final chord), for the mascot's happy beat.
@@ -528,6 +553,10 @@ class SessionController extends ChangeNotifier {
     route = analysis.route;
     selectedProgression = 0;
     perBar = 1;
+    _on
+      ..clear()
+      ..add('take');
+    if (_chordsWanted) _on.add('chords');
     _loadGuide();
     scene
       ..notes = analysis.notes
@@ -604,13 +633,13 @@ class SessionController extends ChangeNotifier {
     parts = const [];
     lens = 'mix';
     _mixNotes = const [];
-    _playWhenReady = false;
-    _backing.clear();
-    _harmonyTrack.clear();
-    _guide.clear();
+    for (final track in _tracks.values) {
+      track.clear();
+    }
+    _on.clear();
     harmonies = const [];
     _harmoniesRequest++;
-    harmonyMix = HarmonyMix.off;
+    _focusedLine = null;
     route = 'melody';
     lastCadenceAt = null;
     _lastSoundingChord = null;
@@ -665,9 +694,7 @@ class SessionController extends ChangeNotifier {
     selectedProgression = 0;
     perBar = 1;
     _loadGuide();
-    // The vocal and instrumental stems now exist: "with the melody" and
-    // "with the music" can play the real recording's parts.
-    unawaited(_switchSource());
+    _loadStems();
     scene
       ..notes = song.notes
       ..key = song.suggestions.key
@@ -677,59 +704,87 @@ class SessionController extends ChangeNotifier {
     _showProgression();
   }
 
-  /// Shows one instrument's part (its notes in the contour, its role) and
-  /// plays it alone from its separated stem; "mix" goes back to the whole
-  /// recording.
-  Future<void> setLens(String id) async {
-    noteInteraction();
-    if (id == lens) return;
-    lens = id;
-    final part = parts.where((p) => p.id == id).firstOrNull;
-    scene
-      ..notes = part?.notes ?? _mixNotes
-      ..selected = null;
-    _changed();
-    await _switchSource();
-  }
-
-  /// What the take player should be playing now: a part soloed through its
-  /// lens, the vocal or instrumental stem a harmony mix asks for, or the
-  /// recording itself.
-  String? get _wantedSource {
+  /// A song's separated parts each get their own track, all on, so any of
+  /// them can be turned off; the full recording keeps running, muted, as
+  /// the clock.
+  void _loadStems() {
     final job = _songJobId;
-    if (job != null && _stemsReady) {
-      if (harmonyMix == HarmonyMix.withMelody) {
-        return _api.stemUrl(job, 'vocals');
-      }
-      if (harmonyMix == HarmonyMix.withMusic) {
-        return _api.stemUrl(job, 'instrumental');
-      }
+    final stems = {for (final p in parts) ?p.stem};
+    if (job == null || stems.isEmpty) return;
+    for (final stem in stems) {
+      final id = 'stem:$stem';
+      unawaited(
+        _track(id).loadUrl(_api.stemUrl(job, stem)).then((loaded) async {
+          if (loaded) await _resumeAux();
+        }),
+      );
+      _on.add(id);
     }
-    final part = currentPart;
-    if (part?.stem != null && job != null) {
-      return _api.stemUrl(job, part!.stem!);
-    }
-    return _takeSource;
+    _on.remove('take');
+    unawaited(_applyMix());
   }
 
-  /// Loads [_wantedSource] into the take player if it isn't already there,
-  /// carrying on from the same position if it was playing.
-  Future<void> _switchSource() async {
-    final source = _wantedSource;
-    if (source == null || source == _loadedSource) return;
-    final wasPlaying = scene.playingAll && _player.playing;
-    final position = _player.position;
-    await _resetPlayer();
-    await _loadPlayback(source, remote: source != _takeSource);
-    if (wasPlaying && playbackReady && _wantedSource == source) {
-      await seek(position.inMicroseconds / 1e6);
-    }
-  }
-
-  /// A song whose separated parts (and so the vocal and instrumental
-  /// stems) are on the server.
+  /// A song whose separated parts are on the server.
   bool get _stemsReady =>
       _songJobId != null && parts.any((p) => p.stem != null);
+
+  /// The chips for what can be heard, parts first, then harmony lines.
+  List<MixToggle> get mixToggles {
+    final out = <MixToggle>[];
+    if (_stemsReady) {
+      final seen = <String>{};
+      for (final p in parts) {
+        if (p.stem != null && seen.add(p.stem!)) {
+          out.add(MixToggle('stem:${p.stem}', p.name, part: p.id));
+        }
+      }
+    } else if (route == 'melody') {
+      out.add(const MixToggle('take', 'Melody'));
+    } else {
+      out.add(const MixToggle('take', 'Recording'));
+      if (_hasTune) out.add(const MixToggle('guide', 'Melody'));
+    }
+    // Short names ("High", "Low", "Held"): they sit under a "harmonies"
+    // heading, three to a row, with room for the tick when on.
+    for (final h in harmonies) {
+      out.add(MixToggle('line:${h.id}', h.name.split(' ').first));
+    }
+    return out;
+  }
+
+  /// Turns one track on or off. Turning a part on also shows its notes;
+  /// turning a harmony on shows why it works.
+  void toggleTrack(String id) {
+    noteInteraction();
+    final on = !_on.contains(id);
+    on ? _on.add(id) : _on.remove(id);
+    if (id == 'chords') _chordsWanted = on;
+    if (id.startsWith('line:')) {
+      if (on) {
+        _focusedLine = id;
+      } else if (_focusedLine == id) {
+        _focusedLine = _on.where((t) => t.startsWith('line:')).lastOrNull;
+      }
+    }
+    if (id.startsWith('stem:')) {
+      final part = parts.where((p) => 'stem:${p.stem}' == id).firstOrNull;
+      if (on && part != null) {
+        _focus(part.id);
+      } else if (!on && currentPart?.stem == part?.stem) {
+        _focus('mix');
+      }
+    }
+    unawaited(_applyMix());
+    _changed();
+  }
+
+  /// Shows one part's notes in the contour, and its role.
+  void _focus(String id) {
+    lens = id;
+    scene
+      ..notes = currentPart?.notes ?? _mixNotes
+      ..selected = null;
+  }
 
   SongPart? get currentPart => parts.where((p) => p.id == lens).firstOrNull;
 
@@ -816,21 +871,16 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Backing
 
-  void toggleBacking() {
-    noteInteraction();
-    withBacking = !withBacking;
-    unawaited(_syncAux(play: scene.playingAll && _player.playing));
-    _changed();
-  }
+  void toggleBacking() => toggleTrack('chords');
 
   Future<void> _loadBacking() async {
     final chords = scene.chords;
     if (chords.isEmpty) {
-      _backing.clear();
+      _track('chords').clear();
       return;
     }
     final duration = scene.duration;
-    if (await _backing.load(() => _api.backing(chords, duration))) {
+    if (await _track('chords').load(() => _api.backing(chords, duration))) {
       await _resumeAux();
     }
   }
@@ -838,9 +888,15 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Harmonies
 
-  HarmonyLine? get harmony => harmonies.isEmpty
-      ? null
-      : harmonies[selectedHarmony.clamp(0, harmonies.length - 1)];
+  /// The harmony line whose explanation is showing, if any is on.
+  HarmonyLine? get harmony =>
+      harmonies.where((h) => 'line:${h.id}' == _focusedLine).firstOrNull;
+
+  /// The harmony lines in the mix, drawn in the contour with the tune.
+  List<HarmonyLine> get audibleHarmonies => [
+    for (final h in harmonies)
+      if (_on.contains('line:${h.id}')) h,
+  ];
 
   /// Whether this take has a tune a second voice could harmonise. A song
   /// nobody sings in has only a stand-in "Top line" (see the song
@@ -860,7 +916,9 @@ class SessionController extends ChangeNotifier {
     final key = suggestions?.key;
     if (!_hasTune || chords.isEmpty || key == null) {
       harmonies = const [];
-      _harmonyTrack.clear();
+      for (final entry in _tracks.entries) {
+        if (entry.key.startsWith('line:')) entry.value.clear();
+      }
       _changed();
       return;
     }
@@ -874,111 +932,59 @@ class SessionController extends ChangeNotifier {
       if (request != _harmoniesRequest || _disposed) return;
       harmonies = lines;
       _changed();
-      await _loadHarmonyTrack();
+      final duration = scene.duration;
+      // Every line is loaded, so turning one on plays at once.
+      await Future.wait([
+        for (final line in lines)
+          _track('line:${line.id}')
+              .load(() => _api.line(line.notes, duration))
+              .then((loaded) async {
+                if (loaded) await _resumeAux();
+              }),
+      ]);
     } catch (e) {
       debugPrint('Could not suggest harmonies: $e');
     }
   }
 
-  Future<void> _loadHarmonyTrack() async {
-    final line = harmony;
-    if (line == null) {
-      _harmonyTrack.clear();
-      return;
-    }
-    final duration = scene.duration;
-    if (await _harmonyTrack.load(() => _api.line(line.notes, duration))) {
-      await _resumeAux();
-    }
-  }
-
-  /// The melody sung by the synth voice, for "with the melody" when the
-  /// take isn't just the singing (a song, or chords on one instrument).
+  /// The melody sung by the synth voice, for hearing the tune on its own
+  /// when the take isn't just the singing (chords on one instrument, or a
+  /// song before its vocals are separated).
   void _loadGuide() {
     if (route == 'melody' || melody.isEmpty) {
-      _guide.clear();
+      _track('guide').clear();
       return;
     }
     final notes = melody;
     final duration = scene.duration;
     unawaited(
-      _guide.load(() => _api.line(notes, duration)).then((loaded) async {
-        if (loaded) await _resumeAux();
-      }),
+      _track('guide')
+          .load(() => _api.line(notes, duration))
+          .then((loaded) async {
+            if (loaded) await _resumeAux();
+          }),
     );
   }
 
-  /// Shows harmony option [index] and loads it to play.
-  void selectHarmony(int index) {
-    noteInteraction();
-    if (index == selectedHarmony && harmonyMix != HarmonyMix.off) return;
-    selectedHarmony = index;
-    // Picking a harmony means wanting to hear it: with the tune, unless
-    // another way of hearing it was already chosen.
-    if (harmonyMix == HarmonyMix.off) harmonyMix = HarmonyMix.withMelody;
-    unawaited(_loadHarmonyTrack());
-    unawaited(_applyMix());
-    _changed();
-  }
-
-  /// How to hear the harmony: alone, with the melody, with the music, or
-  /// not at all.
-  void setHarmonyMix(HarmonyMix mix) {
-    noteInteraction();
-    if (mix == harmonyMix) return;
-    harmonyMix = mix;
-    unawaited(_applyMix());
-    _changed();
-  }
-
-  /// Puts the take player on the right source and volume, and starts or
-  /// stops each synthesized track, for the current mix.
+  /// Sets the take player's volume and starts or stops each track for
+  /// the current mix.
   Future<void> _applyMix() async {
-    await _switchSource();
     await _player.setVolume(_takeVolume);
     await _syncAux(play: scene.playingAll && _player.playing);
   }
 
-  /// The singing on its own is what the take player is playing: a melody
-  /// take is just singing, and a song's vocal stem is too.
-  bool get _melodyFromTake => route == 'melody' || _stemsReady;
-
-  /// The music without the singing is what the take player is playing:
-  /// chords on one instrument have no singing, and a song has its
-  /// instrumental stem.
-  bool get _musicFromTake => route == 'polyphonic' || _stemsReady;
-
-  /// The take player always runs (its position is the clock everything
-  /// follows); muting it is how it's left out of a mix.
-  double get _takeVolume => switch (harmonyMix) {
-    HarmonyMix.off => 1,
-    HarmonyMix.alone => 0,
-    HarmonyMix.withMelody => _melodyFromTake ? 1 : 0,
-    HarmonyMix.withMusic => _musicFromTake ? 1 : 0,
-  };
-
-  bool _audible(_AuxTrack track) {
-    if (track == _harmonyTrack) return harmonyMix != HarmonyMix.off;
-    if (track == _guide) {
-      return harmonyMix == HarmonyMix.withMelody && !_melodyFromTake;
-    }
-    return switch (harmonyMix) {
-      HarmonyMix.off => withBacking,
-      HarmonyMix.alone || HarmonyMix.withMelody => false,
-      HarmonyMix.withMusic => !_musicFromTake,
-    };
-  }
-
-  List<_AuxTrack> get _auxTracks => [_backing, _harmonyTrack, _guide];
+  /// The take player always runs (its position is the clock every track
+  /// follows); leaving the recording out of the mix means muting it.
+  double get _takeVolume => _on.contains('take') ? 1 : 0;
 
   /// Puts each synthesized track at the take's position, playing with it
   /// if it belongs in the mix, otherwise paused.
   Future<void> _syncAux({required bool play}) async {
     final position = _player.position;
     await Future.wait([
-      for (final track in _auxTracks)
+      for (final MapEntry(key: id, value: track) in _tracks.entries)
         if (track.ready)
-          play && _audible(track)
+          play && _on.contains(id)
               ? track.player.seek(position).then((_) {
                   unawaited(track.player.play());
                 })
@@ -1039,8 +1045,6 @@ class SessionController extends ChangeNotifier {
   // Playback
 
   Future<void> _loadPlayback(String path, {bool remote = false}) async {
-    if (!remote) _takeSource = path;
-    _loadedSource = path;
     try {
       if (!kIsWeb) {
         // The recorder leaves the session in record mode; on iOS that
@@ -1054,10 +1058,6 @@ class SessionController extends ChangeNotifier {
       if (player == _player) {
         await player.setVolume(_takeVolume);
         playbackReady = true;
-        if (_playWhenReady) {
-          _playWhenReady = false;
-          unawaited(togglePlay());
-        }
         _changed();
       }
     } catch (e) {
@@ -1070,13 +1070,7 @@ class SessionController extends ChangeNotifier {
   /// from where it was paused; starts over once it has played to the end.
   Future<void> togglePlay() async {
     noteInteraction();
-    if (!playbackReady) {
-      // Mid-switch to another source (a stem a harmony mix asked for): play
-      // as soon as it's loaded rather than dropping the tap.
-      _playWhenReady = _takeSource != null;
-      _changed();
-      return;
-    }
+    if (!playbackReady) return;
     if (scene.playingAll && _player.playing) {
       await _player.pause();
       await _syncAux(play: false);
@@ -1183,7 +1177,6 @@ class SessionController extends ChangeNotifier {
   Future<void> _resetPlayer() async {
     await _stopPlayback();
     playbackReady = false;
-    _loadedSource = null;
     final old = _player;
     _player = AudioPlayer();
     _watchPlayer();
@@ -1254,7 +1247,7 @@ class SessionController extends ChangeNotifier {
     _recorder.dispose();
     _playingSub?.cancel();
     _player.dispose();
-    for (final track in _auxTracks) {
+    for (final track in _tracks.values) {
       track.dispose();
     }
     _stopClick();

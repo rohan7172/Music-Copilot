@@ -80,12 +80,12 @@ class ContourLayout {
     required this.notes,
     required this.duration,
     this.lanes,
-    this.overlay = const [],
-  }) : fitted = fitPitchRange([...notes, ...overlay]);
+    this.overlays = const [],
+  }) : fitted = fitPitchRange([...notes, for (final line in overlays) ...line]);
 
-  /// A second line drawn with the notes (a harmony), included when fitting
-  /// the pitch range so both lines are in view.
-  final List<Note> overlay;
+  /// Other lines drawn with the notes (harmonies), included when fitting
+  /// the pitch range so every line is in view.
+  final List<List<Note>> overlays;
 
   /// Fixed rows instead of a pitch range, lowest first — e.g. a drum part's
   /// kick, snare and hi-hat, spread evenly rather than by their (arbitrary)
