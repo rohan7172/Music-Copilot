@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from app import synth
 from app.songs import jobs
 from app.harmony import without_overtones
+from app.harmoniser.voices import harmonies
 from app.notes import midi_to_note_name
 from app.melody import classify_input, percussive_share_samples
 from app.onset import music_start_samples, trim_notes
@@ -213,10 +214,10 @@ _JOBS_DIR = Path(tempfile.gettempdir()) / "music_copilot_jobs"
 @app.get("/jobs/{job_id}/stems/{name}")
 def stem(job_id: str, name: str) -> FileResponse:
     """One separated part of a song (vocals, bass, other, drums) as a WAV,
-    for soloing it in the app."""
-    from app.songs.pipeline import STEMS
+    for soloing it in the app, or "instrumental": everything but the vocals."""
+    from app.songs.pipeline import INSTRUMENTAL, STEMS
 
-    if name not in STEMS or not job_id.isalnum():
+    if (name not in STEMS and name != INSTRUMENTAL) or not job_id.isalnum():
         raise HTTPException(status_code=404, detail="No such stem")
     path = _JOBS_DIR / job_id / f"{name}.wav"
     if not path.exists():
@@ -255,3 +256,27 @@ def backing(body: dict = Body(...)) -> Response:
     if not chords or duration <= 0:
         raise HTTPException(status_code=400, detail="chords and a duration are required")
     return Response(content=synth.render(chords, duration), media_type="audio/wav")
+
+
+@app.post("/voices")
+def voices_endpoint(body: dict = Body(...)) -> dict:
+    """Harmony lines a second singer could sing with the melody, over one
+    progression's chords (High, Low and Held). Re-asked whenever the user
+    picks another progression, since the best harmony depends on the chords."""
+    grid = None
+    if body.get("grid"):
+        try:
+            grid = BeatGrid.from_dict(body["grid"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="The grid needs a bpm and a downbeat")
+    return {"harmonies": harmonies(body.get("melody") or [], body.get("chords") or [], body.get("key"), grid)}
+
+
+@app.post("/line")
+def line(body: dict = Body(...)) -> Response:
+    """A WAV of one sung line (a harmony, or the melody as a guide)."""
+    notes = body.get("notes") or []
+    duration = float(body.get("duration") or max((n["end_time"] for n in notes), default=0))
+    if not notes or duration <= 0:
+        raise HTTPException(status_code=400, detail="notes and a duration are required")
+    return Response(content=synth.render_line(notes, duration), media_type="audio/wav")

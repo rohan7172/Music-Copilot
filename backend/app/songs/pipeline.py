@@ -31,6 +31,8 @@ SONG_LIMIT = 90.0
 _RATE = 44100
 STEM_RATE = 22050  # stems are saved at this rate: Basic Pitch's own, and small to stream
 STEMS = ("vocals", "bass", "other", "drums")
+# Not a separated stem: the sum of all of them but the vocals.
+INSTRUMENTAL = "instrumental"
 
 Transcribe = Callable[[str], list[dict]]
 Progress = Callable[[str, float], None]
@@ -149,6 +151,10 @@ def analyze_song(
         for name in STEMS:
             audio = librosa.resample(stems[name], orig_sr=_RATE, target_sr=STEM_RATE)
             stem_files[name] = _write(work / f"{name}.wav", audio, STEM_RATE)
+        # Everything but the voice, for hearing a harmony "with just the music".
+        backing = sum(stems[name] for name in STEMS if name != "vocals")
+        backing = librosa.resample(backing, orig_sr=_RATE, target_sr=STEM_RATE)
+        _write(work / f"{INSTRUMENTAL}.wav", backing, STEM_RATE)
     else:
         stems = {}
 
