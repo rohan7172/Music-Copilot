@@ -547,6 +547,42 @@ chord corpus, and a search. That keeps every suggestion explainable.
   transcribed melody plus an edited grid (beat 1 moved, tempo ×2 or ÷2,
   two chords per bar) and re-suggests in milliseconds.
 
+## A second voice: suggested harmonies (`backend/app/harmoniser/voices.py`)
+
+Progressions answer "what chords go under this tune?"; harmonies answer
+"what could a second singer sing with it?", over whichever progression is
+showing (the best harmony depends on the chords under it).
+
+- **Three rules a choir arranger uses, written as costs**: against the
+  melody, thirds and sixths blend while a second, seventh or tritone rubs
+  and a unison isn't harmony; against the chord, a note outside it is fine
+  passing on a weak beat but not held or on beat 1; against itself, the line
+  should move in small steps without **parallel fifths or octaves** (two
+  voices moving in perfect fifths blend into one, so the harmony vanishes).
+- **Viterbi again**: each melody note gets a handful of candidate pitches
+  (in the key, or in the chord), and the whole line is chosen at once as the
+  cheapest path through them. That's the same "best path through time" idea
+  as the song chord decoder, here over pitches instead of chords. Choosing
+  note by note greedily would paint itself into awkward leaps.
+- **Styles are just weights**: *High* (a third above, moving parallel to
+  the tune), *Low* (thirds and sixths below) and *Held* (any motion costs,
+  so it holds chord tones and only moves when it must; repeated notes are
+  then tied into one long note, like backing singers' "oohs").
+- **Explanations are measured**: "82% of its notes are a third above
+  yours" is counted from the line, and the range (e.g. A3–C#5) tells a
+  singer whether it fits their voice.
+- **A synthesized voice** (`synth.render_line`): a sine with soft overtones
+  and a **vibrato** (a 5 Hz pitch wobble) that eases in after the note
+  starts, as singers do. The wobbling frequency is integrated into a phase
+  (`cumsum`) so the pitch bends smoothly instead of clicking.
+- **Hearing it alone, with the melody, or with the music**: the take player
+  always runs, because its position is the clock every other track follows;
+  leaving it out of a mix means muting it, not stopping it. "With the
+  melody" plays the take itself for a hummed tune, a song's separated vocal
+  stem, or the melody sung by the synth voice when neither exists. "With the
+  music" plays the chord pad for a hummed tune, or a song's *instrumental*
+  (every separated stem but the vocals, summed by the song job).
+
 ## Key and chord detection from notes (`backend/app/harmony.py`, legacy)
 
 The original approach: look up which chord the simultaneous notes spell.

@@ -188,4 +188,26 @@ void main() {
     expect(analysis.parts.first.notes.single.midiPitch, 36);
     expect(analysis.parts.last.stem, isNull);
   });
+
+  test('a harmony line parses with its notes', () {
+    final line = HarmonyLine.fromJson({
+      'id': 'high',
+      'name': 'High harmony',
+      'character': 'a third above you',
+      'detail': '80% of its notes are a third above yours.',
+      'range': 'E4–D5',
+      'notes': [
+        {
+          'pitch': 'E4',
+          'midi_pitch': 64,
+          'start_time': 0.0,
+          'end_time': 0.5,
+          'confidence': 1.0,
+        },
+      ],
+    });
+    expect(line.id, 'high');
+    expect(line.range, 'E4–D5');
+    expect(line.notes.single.midiPitch, 64);
+  });
 }

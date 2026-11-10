@@ -138,4 +138,53 @@ class ApiService {
     }
     return response.bodyBytes;
   }
+
+  /// Harmony lines a second singer could sing with [melody] over
+  /// [chords]: High, Low and Held.
+  Future<List<HarmonyLine>> voices({
+    required List<Note> melody,
+    required List<ProgressionChord> chords,
+    required MusicKey key,
+    BeatGrid? grid,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/voices'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'melody': [for (final n in melody) n.toJson()],
+        'chords': [for (final c in chords) c.toBackingJson()],
+        'key': key.toJson(),
+        if (grid != null) 'grid': grid.toJson(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return [
+      for (final h in body['harmonies'] as List<dynamic>)
+        HarmonyLine.fromJson(h as Map<String, dynamic>),
+    ];
+  }
+
+  /// A WAV of [notes] sung by a soft synthesized voice, [duration] seconds
+  /// long: a harmony line, or the melody as a guide.
+  Future<Uint8List> line(List<Note> notes, double duration) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/line'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'notes': [for (final n in notes) n.toJson()],
+        'duration': duration,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return response.bodyBytes;
+  }
 }

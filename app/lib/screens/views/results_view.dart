@@ -130,6 +130,10 @@ class ResultsView extends StatelessWidget {
                   onChordTap: (i) => _showChord(context, i),
                 ),
                 const SizedBox(height: Space.md),
+                if (controller.harmonies.isNotEmpty) ...[
+                  _Harmonies(controller: controller),
+                  const SizedBox(height: Space.md),
+                ],
                 if (controller.parts.isNotEmpty) ...[
                   _PartLenses(controller: controller),
                   const SizedBox(height: Space.md),
@@ -150,6 +154,11 @@ class ResultsView extends StatelessWidget {
                   laneLabels: controller.lens == 'drums'
                       ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
                       : null,
+                  overlay:
+                      controller.harmonyMix != HarmonyMix.off &&
+                          controller.lens != 'drums'
+                      ? controller.harmony?.notes ?? const []
+                      : const [],
                 ),
               ],
             ),
@@ -181,23 +190,45 @@ class ResultsView extends StatelessWidget {
                 semanticLabel: controller.isPlaying
                     ? 'Pause'
                     : 'Play the take with these chords',
-                onTap: controller.playbackReady ? controller.togglePlay : null,
+                onTap:
+                    controller.playbackReady ||
+                        controller.harmonyMix != HarmonyMix.off
+                    ? controller.togglePlay
+                    : null,
               ),
               const SizedBox(width: Space.md),
               Expanded(
-                child: PillButton(
-                  label: controller.withBacking ? 'chords on' : 'chords off',
-                  icon: controller.withBacking
-                      ? Icons.piano_rounded
-                      : Icons.piano_off_rounded,
-                  tone: controller.withBacking ? PillTone.soft : PillTone.quiet,
-                  height: 48,
-                  expand: true,
-                  textStyle: TextStyles.labelMd.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  onTap: controller.toggleBacking,
-                ),
+                child: controller.harmonyMix != HarmonyMix.off
+                    // While a harmony is being heard its mix decides what
+                    // plays; one tap goes back to the take with its chords.
+                    ? PillButton(
+                        label: 'harmony ${_mixWords[controller.harmonyMix]}',
+                        icon: Icons.close_rounded,
+                        tone: PillTone.soft,
+                        height: 48,
+                        expand: true,
+                        textStyle: TextStyles.labelMd.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTap: () => controller.setHarmonyMix(HarmonyMix.off),
+                      )
+                    : PillButton(
+                        label: controller.withBacking
+                            ? 'chords on'
+                            : 'chords off',
+                        icon: controller.withBacking
+                            ? Icons.piano_rounded
+                            : Icons.piano_off_rounded,
+                        tone: controller.withBacking
+                            ? PillTone.soft
+                            : PillTone.quiet,
+                        height: 48,
+                        expand: true,
+                        textStyle: TextStyles.labelMd.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTap: controller.toggleBacking,
+                      ),
               ),
             ],
           ),
@@ -220,6 +251,196 @@ class ResultsView extends StatelessWidget {
       context: context,
       constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
       builder: (context) => _GridSheet(controller: controller),
+    );
+  }
+}
+
+const _mixWords = {
+  HarmonyMix.off: 'off',
+  HarmonyMix.alone: 'alone',
+  HarmonyMix.withMelody: '+ melody',
+  HarmonyMix.withMusic: '+ music',
+};
+
+/// A second voice to sing with the tune, over the chords in view: pick one
+/// of the lines, then how to hear it — alone, with the melody, or with
+/// just the music. The chosen line is drawn in the contour too.
+class _Harmonies extends StatelessWidget {
+  const _Harmonies({required this.controller});
+
+  final SessionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = controller.harmonyMix != HarmonyMix.off;
+    final line = controller.harmony;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionLabel(
+          'harmonies',
+          trailing: Text(
+            'over the ${controller.progression?.title ?? ''} chords',
+            style: TextStyles.labelSm.copyWith(
+              color: Palette.outline,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.sm),
+        Row(
+          children: [
+            for (var i = 0; i < controller.harmonies.length; i++) ...[
+              if (i > 0) const SizedBox(width: Space.sm),
+              Expanded(
+                child: _Choice(
+                  label: controller.harmonies[i].name,
+                  selected: on && i == controller.selectedHarmony,
+                  height: 40,
+                  semanticLabel:
+                      '${controller.harmonies[i].name}: ${controller.harmonies[i].character}',
+                  onTap: () => controller.selectHarmony(i),
+                ),
+              ),
+            ],
+          ],
+        ),
+        AnimatedSize(
+          duration: Motion.settle,
+          curve: Motion.curve,
+          alignment: Alignment.topCenter,
+          child: !on || line == null
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: Space.sm),
+                  child: Container(
+                    padding: const EdgeInsets.all(Space.md),
+                    decoration: BoxDecoration(
+                      color: Palette.container,
+                      borderRadius: BorderRadius.circular(Shape.panel),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                line.character,
+                                style: TextStyles.bodyMd.copyWith(
+                                  color: Palette.onSurface,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: Space.sm),
+                            Text(
+                              line.range,
+                              style: TextStyles.labelMd.copyWith(
+                                color: Palette.outline,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: Space.xs),
+                        Text(line.detail, style: TextStyles.bodySm),
+                        const SizedBox(height: Space.md),
+                        Text(
+                          'HEAR IT',
+                          style: TextStyles.labelSm.copyWith(
+                            color: Palette.outline,
+                          ),
+                        ),
+                        const SizedBox(height: Space.xs),
+                        Row(
+                          children: [
+                            for (final mix in const [
+                              HarmonyMix.alone,
+                              HarmonyMix.withMelody,
+                              HarmonyMix.withMusic,
+                            ]) ...[
+                              if (mix != HarmonyMix.alone)
+                                const SizedBox(width: Space.xs),
+                              Expanded(
+                                child: _Choice(
+                                  label: switch (mix) {
+                                    HarmonyMix.alone => 'Alone',
+                                    HarmonyMix.withMelody => 'With melody',
+                                    _ => 'With music',
+                                  },
+                                  selected: controller.harmonyMix == mix,
+                                  height: 34,
+                                  quiet: true,
+                                  semanticLabel: switch (mix) {
+                                    HarmonyMix.alone =>
+                                      'Hear the harmony on its own',
+                                    HarmonyMix.withMelody =>
+                                      'Hear the harmony with just the melody',
+                                    _ => 'Hear the harmony with just the music',
+                                  },
+                                  onTap: () => controller.setHarmonyMix(mix),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A pill that's one of a set: filled when chosen.
+class _Choice extends StatelessWidget {
+  const _Choice({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.height,
+    required this.semanticLabel,
+    this.quiet = false,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final double height;
+  final String semanticLabel;
+
+  /// Sits on a tinted panel, so unchosen it's the canvas colour.
+  final bool quiet;
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: semanticLabel,
+      child: AnimatedContainer(
+        duration: Motion.quick,
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: ShapeDecoration(
+          color: selected
+              ? Palette.primary
+              : quiet
+              ? Palette.canvas
+              : Palette.creamAlt,
+          shape: const StadiumBorder(),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyles.labelMd.copyWith(
+            fontWeight: FontWeight.w600,
+            color: selected ? Palette.onPrimary : Palette.ink,
+          ),
+        ),
+      ),
     );
   }
 }

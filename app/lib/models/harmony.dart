@@ -207,6 +207,45 @@ class Progression {
   };
 }
 
+/// A second line to sing with the melody, over one progression: "high"
+/// (a third above), "low" (thirds and sixths below) or "held" (long notes
+/// from the chords).
+class HarmonyLine {
+  HarmonyLine({
+    required this.id,
+    required this.name,
+    required this.character,
+    required this.detail,
+    required this.range,
+    required this.notes,
+  });
+
+  factory HarmonyLine.fromJson(Map<String, dynamic> json) => HarmonyLine(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    character: json['character'] as String,
+    detail: json['detail'] as String,
+    range: json['range'] as String,
+    notes: [
+      for (final n in json['notes'] as List<dynamic>)
+        Note.fromJson(n as Map<String, dynamic>),
+    ],
+  );
+
+  final String id;
+  final String name;
+
+  /// The one-line sound of it, e.g. "a third above you".
+  final String character;
+
+  /// One measured sentence about how it moves against the tune.
+  final String detail;
+
+  /// Lowest to highest note, e.g. "E4–D5", so a singer knows if it fits.
+  final String range;
+  final List<Note> notes;
+}
+
 /// What /analyze and /harmonise return: the progressions plus everything
 /// needed to re-ask after a nudge.
 class Suggestions {
