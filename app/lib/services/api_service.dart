@@ -4,7 +4,21 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
+import '../models/harmony.dart';
 import '../models/note.dart';
+
+final _mediaTypesByExtension = {
+  'wav': MediaType('audio', 'wav'),
+  'mp3': MediaType('audio', 'mpeg'),
+  'm4a': MediaType('audio', 'mp4'),
+};
+
+/// The content type to upload a file as, inferred from its extension.
+/// Falls back to WAV for anything unrecognised.
+MediaType mediaTypeForFilename(String filename) {
+  final extension = filename.split('.').last.toLowerCase();
+  return _mediaTypesByExtension[extension] ?? _mediaTypesByExtension['wav']!;
+}
 
 /// Talks to the Music Copilot backend.
 ///
@@ -21,15 +35,31 @@ class ApiService {
 
   final String baseUrl;
 
-  Future<List<Note>> analyzeAudio(Uint8List wavBytes) async {
+  /// Transcribes a take and suggests progressions for its melody. Pass
+  /// [bpm] and [firstBeat] (seconds into the take) when a click was played,
+  /// so the beat grid is exact instead of estimated.
+  Future<Analysis> analyzeAudio(
+    Uint8List bytes, {
+    String filename = 'recording.wav',
+    double? bpm,
+    double? firstBeat,
+    int meter = 4,
+  }) async {
     final uri = Uri.parse('$baseUrl/analyze');
     final request = http.MultipartRequest('POST', uri)
+      ..fields.addAll({
+        if (bpm != null) 'bpm': '$bpm',
+        if (firstBeat != null) 'first_beat': '$firstBeat',
+        // Only with a click: otherwise the backend works out 3/4 or 4/4
+        // from the take itself.
+        if (bpm != null && firstBeat != null) 'meter': '$meter',
+      })
       ..files.add(
         http.MultipartFile.fromBytes(
           'file',
-          wavBytes,
-          filename: 'recording.wav',
-          contentType: MediaType('audio', 'wav'),
+          bytes,
+          filename: filename,
+          contentType: mediaTypeForFilename(filename),
         ),
       );
 
@@ -37,11 +67,124 @@ class ApiService {
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode != 200) {
-      throw Exception('Server returned ${response.statusCode}: ${response.body}');
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final notesJson = data['notes'] as List<dynamic>;
-    return notesJson.map((n) => Note.fromJson(n as Map<String, dynamic>)).toList();
+    return Analysis.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Re-suggests for an already-analyzed melody after a grid nudge or key
+  /// override. No audio is sent.
+  Future<Suggestions> harmonise({
+    required List<Note> melody,
+    required BeatGrid grid,
+    MusicKey? key,
+    int perBar = 1,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/harmonise'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'melody': [for (final n in melody) n.toJson()],
+        'grid': grid.toJson(),
+        if (key != null) 'key': key.toJson(),
+        'per_bar': perBar,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return Suggestions.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// A background song analysis's progress, and its result once done.
+  Future<SongJob> job(String id) async {
+    final response = await http.get(Uri.parse('$baseUrl/jobs/$id'));
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return SongJob.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Where one separated part of a song can be streamed from, to solo it.
+  String stemUrl(String jobId, String stem) =>
+      '$baseUrl/jobs/$jobId/stems/$stem';
+
+  /// A WAV of [chords] played as a soft pad, [duration] seconds long.
+  Future<Uint8List> backing(
+    List<ProgressionChord> chords,
+    double duration,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/backing'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'chords': [for (final c in chords) c.toBackingJson()],
+        'duration': duration,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return response.bodyBytes;
+  }
+
+  /// Harmony lines a second singer could sing with [melody] over
+  /// [chords]: High, Low and Held.
+  Future<List<HarmonyLine>> voices({
+    required List<Note> melody,
+    required List<ProgressionChord> chords,
+    required MusicKey key,
+    BeatGrid? grid,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/voices'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'melody': [for (final n in melody) n.toJson()],
+        'chords': [for (final c in chords) c.toBackingJson()],
+        'key': key.toJson(),
+        if (grid != null) 'grid': grid.toJson(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return [
+      for (final h in body['harmonies'] as List<dynamic>)
+        HarmonyLine.fromJson(h as Map<String, dynamic>),
+    ];
+  }
+
+  /// A WAV of [notes] sung by a soft synthesized voice, [duration] seconds
+  /// long: a harmony line, or the melody as a guide.
+  Future<Uint8List> line(List<Note> notes, double duration) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/line'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'notes': [for (final n in notes) n.toJson()],
+        'duration': duration,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Server returned ${response.statusCode}: ${response.body}',
+      );
+    }
+    return response.bodyBytes;
   }
 }

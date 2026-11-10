@@ -22,4 +22,12 @@ class Note {
   final double startTime;
   final double endTime;
   final double confidence;
+
+  Map<String, dynamic> toJson() => {
+    'pitch': pitch,
+    'midi_pitch': midiPitch,
+    'start_time': startTime,
+    'end_time': endTime,
+    'confidence': confidence,
+  };
 }

@@ -19,3 +19,15 @@ app/.idea/
 
 # macOS
 .DS_Store
+
+# dev.sh logs
+.dev/
+
+# Raw datasets (rebuild derived tables with scripts/)
+backend/data_raw/
+
+# Backend secrets (e.g. GEMINI_API_KEY)
+backend/.env
+
+# Downloaded model weights (scripts/fetch_btc_weights.py)
+backend/models/
