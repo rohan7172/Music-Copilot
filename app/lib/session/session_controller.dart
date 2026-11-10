@@ -29,6 +29,20 @@ class SessionError {
   final String? detail;
 }
 
+/// Whether a recording should finish itself now, [recorded] seconds in,
+/// last loud at [lastLoudAt]. A hummed take stops after 3 s of quiet once
+/// it's 10 s long; a song stops at [SessionController.songListenSeconds]
+/// and never on quiet, since songs have quiet bars.
+bool shouldAutoStop({
+  required double recorded,
+  required double lastLoudAt,
+  required bool songMode,
+}) {
+  if (songMode) return recorded >= SessionController.songListenSeconds;
+  if (recorded < SessionController.autoStopMinRecording) return false;
+  return recorded - lastLoudAt >= SessionController.autoStopSilence;
+}
+
 /// One thing that can be heard in the mix, turned on and off by a chip:
 /// a part of the recording, a harmony line, or the melody's guide voice.
 class MixToggle {
@@ -242,7 +256,16 @@ class SessionController extends ChangeNotifier {
   bool _restarting = false;
 
   static const autoStopMinRecording = 10.0;
-  static const _autoStopSilence = 3.0;
+  static const autoStopSilence = 3.0;
+
+  /// How long "Song playing" listens: enough bars for the chords, the
+  /// separated parts and the harmonies, well under the backend's 90 s
+  /// clip, and short to wait for.
+  static const songListenSeconds = 45.0;
+
+  /// Whether this recording is a song playing nearby (from speakers)
+  /// rather than a hummed or sung tune.
+  bool songMode = false;
 
   /// Curved live-amplitude thresholds: below [_silenceThreshold] reads as
   /// silence for auto-stop; a rising edge above [_peakThreshold] counts as
@@ -338,7 +361,14 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Recording
 
-  Future<void> startRecording() async {
+  /// Records a hummed or sung tune.
+  Future<void> startRecording() => _beginRecording(songMode: false);
+
+  /// Listens to a song playing nearby, from a speaker: no click, no
+  /// stopping on quiet bars, and a fixed length.
+  Future<void> listenToSong() => _beginRecording(songMode: true);
+
+  Future<void> _beginRecording({required bool songMode}) async {
     noteInteraction();
     if (!await _recorder.hasPermission()) {
       error = const SessionError(
@@ -372,13 +402,14 @@ class SessionController extends ChangeNotifier {
     _lastLoudAt = 0;
     _lastLevel = 0;
     _autoStopping = false;
+    this.songMode = songMode;
     _recordingTime
       ..reset()
       ..start();
     _amplitudeSub = _recorder
         .onAmplitudeChanged(const Duration(milliseconds: 40))
         .listen(_onAmplitude);
-    if (clickOn) unawaited(_startClick());
+    if (clickOn && !songMode) unawaited(_startClick());
 
     scene.phase = Phase.recording;
     error = null;
@@ -406,13 +437,17 @@ class SessionController extends ChangeNotifier {
     _lastLevel = curved;
   }
 
-  /// "3 s of silence auto-stops after a recording of 10 s or more" — a take
-  /// that's gone quiet for a while finishes itself rather than waiting on a
-  /// tap, the same as tapping stop would.
+  /// A take that's gone quiet, or a song that's been heard long enough,
+  /// finishes itself rather than waiting on a tap, the same as tapping
+  /// stop would (see [shouldAutoStop]).
   void _checkAutoStop() {
     if (_autoStopping) return;
-    if (scene.liveDuration < autoStopMinRecording) return;
-    if (scene.liveDuration - _lastLoudAt < _autoStopSilence) return;
+    final stop = shouldAutoStop(
+      recorded: scene.liveDuration,
+      lastLoudAt: _lastLoudAt,
+      songMode: songMode,
+    );
+    if (!stop) return;
     _autoStopping = true;
     unawaited(stopAndAnalyze());
   }
@@ -872,7 +907,6 @@ class SessionController extends ChangeNotifier {
 
   // ---------------------------------------------------------------------
   // Backing
-
 
   Future<void> _loadBacking() async {
     final chords = scene.chords;

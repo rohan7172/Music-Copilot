@@ -653,6 +653,29 @@ chord tones).
   releases removed — an example of a dependency's dependency setting your
   ceiling.
 
+## Listening to a song through the air (`listenToSong()` in `SessionController`)
+
+"Song playing" records whatever is playing nearby and sends it down the
+same path as an imported file: the backend sees a full mix, answers
+quickly from the top line, then separates the parts in a job.
+
+- **Air vs. file**: a file is the exact mix; a mic recording adds the
+  room's echo, the speaker's colour (thin bass from a phone or laptop) and
+  any talking. Separation and chord recognition still cope, because they
+  listen for the shape of the harmony rather than exact sounds, but a
+  file stays the cleaner input when you have one.
+- **A different stop rule** (`shouldAutoStop`, a pure function so it's
+  easy to test): humming stops after 3 s of quiet once 10 s in. A song
+  has quiet bars, so song mode ignores silence and stops at 45 s
+  (`songListenSeconds`) — enough bars for chords, stems and harmonies,
+  under the backend's 90 s clip, and not too long to wait. No click
+  either: the song has its own beat.
+- **Why not Spotify?** Streaming services' APIs give a track's *name*,
+  not its audio (Spotify dropped previews for new apps in 2024 and
+  retired its audio-analysis endpoints), so the sound has to come from
+  the mic anyway. Naming the song would need an audio fingerprint lookup
+  (e.g. AcoustID) — not built.
+
 ## What each instrument is doing (`backend/app/songs/roles.py`)
 
 A song's transcription used to be one wall of every note. Now each

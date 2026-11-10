@@ -6,8 +6,8 @@ import '../../widgets/mascot/session_mascot.dart';
 import '../../widgets/ui.dart';
 
 /// The start screen (Stitch "Idle"): the companion waiting in the middle of
-/// the canvas, one invitation, and the two ways in — sing into the mic or
-/// bring a file.
+/// the canvas, one invitation, and the ways in: sing into the mic, let it
+/// listen to a song playing nearby, or bring a file.
 class IdleView extends StatelessWidget {
   const IdleView({super.key, required this.controller});
 
@@ -34,8 +34,8 @@ class IdleView extends StatelessWidget {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 280),
                 child: Text(
-                  'Sing or hum a tune and I’ll suggest chords that fit it, '
-                  'and tell you why.',
+                  'Sing or hum a tune, or play a song near me, and I’ll '
+                  'find chords and harmonies for it, and tell you why.',
                   style: TextStyles.bodyMd,
                   textAlign: TextAlign.center,
                 ),
@@ -51,7 +51,15 @@ class IdleView extends StatelessWidget {
                     tone: PillTone.primary,
                     onTap: controller.startRecording,
                   ),
-                  const SizedBox(width: Space.xl),
+                  const SizedBox(width: Space.lg),
+                  RoundAction(
+                    icon: Icons.graphic_eq_rounded,
+                    caption: 'Song playing',
+                    semanticLabel:
+                        'Listen to a song playing nearby and analyze it',
+                    onTap: controller.listenToSong,
+                  ),
+                  const SizedBox(width: Space.lg),
                   RoundAction(
                     icon: Icons.upload_file_rounded,
                     caption: 'File import',

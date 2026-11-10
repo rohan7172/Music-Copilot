@@ -80,13 +80,17 @@ class ListeningView extends StatelessWidget {
           AnimatedSwitcher(
             duration: Motion.settle,
             child: Text(
-              analyzing ? 'Finding the notes' : 'I’m listening',
+              analyzing
+                  ? 'Finding the notes'
+                  : controller.songMode
+                  ? 'Listening to the song'
+                  : 'I’m listening',
               key: ValueKey(analyzing),
               style: TextStyles.headlineMd,
               textAlign: TextAlign.center,
             ),
           ),
-          if (controller.clickOn && !analyzing)
+          if (controller.clickOn && !controller.songMode && !analyzing)
             ValueListenableBuilder<double>(
               valueListenable: controller.clock,
               builder: (context, _, _) {
@@ -156,7 +160,9 @@ class ListeningView extends StatelessWidget {
                     height: 56,
                     child: Center(
                       child: Text(
-                        'Finding the tune, its beat and key, then chords for it…',
+                        controller.songMode
+                            ? 'Finding its beat, key and chords, then each part…'
+                            : 'Finding the tune, its beat and key, then chords for it…',
                         style: TextStyles.bodyMd,
                         textAlign: TextAlign.center,
                       ),
@@ -181,8 +187,14 @@ class ListeningView extends StatelessWidget {
             builder: (context, _, _) {
               final pastMin =
                   scene.liveDuration >= SessionController.autoStopMinRecording;
+              final left =
+                  (SessionController.songListenSeconds - scene.liveDuration)
+                      .ceil()
+                      .clamp(0, 999);
               final hint = analyzing
                   ? ''
+                  : controller.songMode
+                  ? 'I’ll stop in $left s, or tap stop sooner.'
                   : pastMin
                   ? 'Go quiet for 3 seconds and I’ll stop on my own.'
                   : 'Hum, sing, or strum — anything with a tune.';
@@ -190,7 +202,9 @@ class ListeningView extends StatelessWidget {
                 duration: Motion.settle,
                 child: Text(
                   hint,
-                  key: ValueKey(hint),
+                  // The countdown ticks every second; only a different kind
+                  // of hint cross-fades.
+                  key: ValueKey(controller.songMode ? 'song' : hint),
                   style: TextStyles.bodySm,
                   textAlign: TextAlign.center,
                 ),
