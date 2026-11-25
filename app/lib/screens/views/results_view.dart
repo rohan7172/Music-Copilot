@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 
+import '../../layout.dart';
 import '../../models/harmony.dart';
 import '../../session/session_controller.dart';
 import '../../theme.dart';
@@ -29,71 +30,18 @@ class ResultsView extends StatelessWidget {
 
     final key = suggestions.key;
     final grid = suggestions.grid;
+    final desktop = useDesktopLayout(context);
+    final top = _topBar(context, key, grid, desktop: desktop);
+    final transport = _transport(desktop: desktop);
+    if (desktop) return _desktopLayout(context, top, transport);
+
     // The top row and the transport stay put with only the middle scrolling,
     // so scrolled content stops short of the liquid header and the play
     // button is always in reach.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Space.margin,
-            Space.xs,
-            Space.margin,
-            0,
-          ),
-          child: Row(
-            children: [
-              // Icon-only so the key and tempo always fit beside it.
-              RoundAction(
-                icon: Icons.refresh_rounded,
-                size: 32,
-                semanticLabel: 'Start a new take',
-                onTap: controller.newTake,
-              ),
-              const Spacer(),
-              if (key != null)
-                Flexible(
-                  flex: 0,
-                  child: InfoChip(
-                    dot: Palette.noteActive,
-                    semanticLabel: 'Key: ${key.name}',
-                    children: [
-                      const TextSpan(
-                        text: 'key: ',
-                        style: TextStyle(color: Palette.onSurfaceVariant),
-                      ),
-                      TextSpan(
-                        text: key.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-              if (grid != null) ...[
-                const SizedBox(width: Space.sm),
-                InfoChip(
-                  icon: grid.guessed
-                      ? Icons.tune_rounded
-                      : Icons.timer_outlined,
-                  semanticLabel:
-                      '${grid.bpm.round()} beats per minute. Adjust the beat grid',
-                  onTap: () => _showGridSheet(context),
-                  children: [
-                    TextSpan(
-                      text: '${grid.bpm.round()}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: TextStyles.tabular,
-                      ),
-                    ),
-                    const TextSpan(text: ' bpm'),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
+        top,
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: Space.margin),
@@ -138,119 +86,322 @@ class ResultsView extends StatelessWidget {
                   _PartLenses(controller: controller),
                   const SizedBox(height: Space.md),
                 ],
-                ContourPanel(
-                  controller: controller,
-                  onChordTap: (i) => _showChord(context, i),
-                  label: switch (controller.lens) {
-                    'melody' => controller.parts.first.name.toLowerCase(),
-                    'bass' => 'bass line',
-                    'harmony' => 'harmony',
-                    'drums' => 'drums',
-                    _ =>
-                      controller.parts.isEmpty
-                          ? 'vocal contour'
-                          : controller.parts.first.name.toLowerCase(),
-                  },
-                  laneLabels: controller.lens == 'drums'
-                      ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
-                      : null,
-                  overlay:
-                      controller.harmonyMix != HarmonyMix.off &&
-                          controller.lens != 'drums'
-                      ? controller.harmony?.notes ?? const []
-                      : const [],
+                _contour(context),
+              ],
+            ),
+          ),
+        ),
+        transport,
+      ],
+    );
+  }
+
+  /// Desktop: the contour gets the room — wide and tall on the left, with
+  /// the song's parts and harmonies under it — and every progression is
+  /// listed at once on the right instead of swiped between.
+  Widget _desktopLayout(BuildContext context, Widget top, Widget transport) {
+    final suggestions = controller.suggestions!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        top,
+        const SizedBox(height: Space.sm),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.lg),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (controller.songStage != null) ...[
+                          const SizedBox(height: Space.sm),
+                          _SongProgress(
+                            stage: controller.songStage!,
+                            progress: controller.songProgress,
+                          ),
+                        ] else if (controller.routeNote != null) ...[
+                          const SizedBox(height: Space.sm),
+                          Text(
+                            controller.routeNote!,
+                            style: TextStyles.bodySm.copyWith(
+                              color: Palette.outline,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                        if (controller.songStage != null ||
+                            controller.routeNote != null)
+                          const SizedBox(height: Space.md),
+                        _contour(context, rollHeight: 320),
+                        if (controller.parts.isNotEmpty) ...[
+                          const SizedBox(height: Space.md),
+                          _PartLenses(controller: controller),
+                        ],
+                        if (controller.harmonies.isNotEmpty) ...[
+                          const SizedBox(height: Space.md),
+                          _Harmonies(controller: controller),
+                        ],
+                        const SizedBox(height: Space.md),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Space.lg),
+                SizedBox(
+                  width: 360,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            SessionMascot(controller: controller, width: 72),
+                            const SizedBox(width: Space.md),
+                            Expanded(
+                              child: Text(
+                                suggestions.insight ??
+                                    'Here are chords that fit your tune.',
+                                style: TextStyles.labelMd.copyWith(height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: Space.md),
+                        const SectionLabel('chord ideas'),
+                        const SizedBox(height: Space.sm),
+                        _ProgressionList(
+                          controller: controller,
+                          onChordTap: (i) => _showChord(context, i),
+                        ),
+                        const SizedBox(height: Space.md),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Space.margin,
-            Space.sm,
-            Space.margin,
-            Space.xs,
-          ),
-          child: Row(
-            children: [
-              RoundAction(
-                icon: Icons.repeat_rounded,
-                size: 48,
-                semanticLabel: controller.loop ? 'Loop on' : 'Loop off',
-                selected: controller.loop,
-                onTap: controller.toggleLoop,
-              ),
-              const SizedBox(width: Space.md),
-              RoundAction(
-                icon: controller.isPlaying && controller.scene.playingAll
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
-                size: 56,
-                tone: PillTone.primary,
-                semanticLabel: controller.isPlaying
-                    ? 'Pause'
-                    : 'Play the take with these chords',
-                onTap:
-                    controller.playbackReady ||
-                        controller.harmonyMix != HarmonyMix.off
-                    ? controller.togglePlay
-                    : null,
-              ),
-              const SizedBox(width: Space.md),
-              Expanded(
-                child: controller.harmonyMix != HarmonyMix.off
-                    // While a harmony is being heard its mix decides what
-                    // plays; one tap goes back to the take with its chords.
-                    ? PillButton(
-                        label: 'harmony ${_mixWords[controller.harmonyMix]}',
-                        icon: Icons.close_rounded,
-                        tone: PillTone.soft,
-                        height: 48,
-                        expand: true,
-                        textStyle: TextStyles.labelMd.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        onTap: () => controller.setHarmonyMix(HarmonyMix.off),
-                      )
-                    : PillButton(
-                        label: controller.withBacking
-                            ? 'chords on'
-                            : 'chords off',
-                        icon: controller.withBacking
-                            ? Icons.piano_rounded
-                            : Icons.piano_off_rounded,
-                        tone: controller.withBacking
-                            ? PillTone.soft
-                            : PillTone.quiet,
-                        height: 48,
-                        expand: true,
-                        textStyle: TextStyles.labelMd.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        onTap: controller.toggleBacking,
-                      ),
-              ),
-            ],
-          ),
-        ),
+        transport,
       ],
+    );
+  }
+
+  Widget _topBar(
+    BuildContext context,
+    MusicKey? key,
+    BeatGrid? grid, {
+    required bool desktop,
+  }) {
+    final bar = Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.margin,
+        Space.xs,
+        Space.margin,
+        0,
+      ),
+      child: Row(
+        children: [
+          // The sidebar offers "start over" on desktop, so there the
+          // key and tempo sit under a heading instead.
+          if (desktop)
+            Semantics(
+              header: true,
+              child: Text('Your take', style: TextStyles.headlineMd),
+            )
+          else
+            // Icon-only so the key and tempo always fit beside it.
+            RoundAction(
+              icon: Icons.refresh_rounded,
+              size: 32,
+              semanticLabel: 'Start a new take',
+              onTap: controller.newTake,
+            ),
+          const Spacer(),
+          if (key != null)
+            Flexible(
+              flex: 0,
+              child: InfoChip(
+                dot: Palette.noteActive,
+                semanticLabel: 'Key: ${key.name}',
+                children: [
+                  const TextSpan(
+                    text: 'key: ',
+                    style: TextStyle(color: Palette.onSurfaceVariant),
+                  ),
+                  TextSpan(
+                    text: key.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          if (grid != null) ...[
+            const SizedBox(width: Space.sm),
+            InfoChip(
+              icon: grid.guessed ? Icons.tune_rounded : Icons.timer_outlined,
+              semanticLabel:
+                  '${grid.bpm.round()} beats per minute. Adjust the beat grid',
+              onTap: () => _showGridSheet(context),
+              children: [
+                TextSpan(
+                  text: '${grid.bpm.round()}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: TextStyles.tabular,
+                  ),
+                ),
+                const TextSpan(text: ' bpm'),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+    return bar;
+  }
+
+  Widget _contour(BuildContext context, {double rollHeight = 200}) {
+    return ContourPanel(
+      controller: controller,
+      rollHeight: rollHeight,
+      onChordTap: (i) => _showChord(context, i),
+      label: switch (controller.lens) {
+        'melody' => controller.parts.first.name.toLowerCase(),
+        'bass' => 'bass line',
+        'harmony' => 'harmony',
+        'drums' => 'drums',
+        _ =>
+          controller.parts.isEmpty
+              ? 'vocal contour'
+              : controller.parts.first.name.toLowerCase(),
+      },
+      laneLabels: controller.lens == 'drums'
+          ? const {36: 'Kick', 38: 'Snare', 42: 'Hat'}
+          : null,
+      overlay:
+          controller.harmonyMix != HarmonyMix.off && controller.lens != 'drums'
+          ? controller.harmony?.notes ?? const []
+          : const [],
+    );
+  }
+
+  Widget _transport({required bool desktop}) {
+    final row = Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.margin,
+        Space.sm,
+        Space.margin,
+        Space.xs,
+      ),
+      child: Row(
+        children: [
+          RoundAction(
+            icon: Icons.repeat_rounded,
+            size: 48,
+            semanticLabel: controller.loop ? 'Loop on' : 'Loop off',
+            selected: controller.loop,
+            onTap: controller.toggleLoop,
+          ),
+          const SizedBox(width: Space.md),
+          RoundAction(
+            icon: controller.isPlaying && controller.scene.playingAll
+                ? Icons.pause_rounded
+                : Icons.play_arrow_rounded,
+            size: 56,
+            tone: PillTone.primary,
+            semanticLabel: controller.isPlaying
+                ? 'Pause'
+                : 'Play the take with these chords',
+            onTap:
+                controller.playbackReady ||
+                    controller.harmonyMix != HarmonyMix.off
+                ? controller.togglePlay
+                : null,
+          ),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: controller.harmonyMix != HarmonyMix.off
+                // While a harmony is being heard its mix decides what
+                // plays; one tap goes back to the take with its chords.
+                ? PillButton(
+                    label: 'harmony ${_mixWords[controller.harmonyMix]}',
+                    icon: Icons.close_rounded,
+                    tone: PillTone.soft,
+                    height: 48,
+                    expand: true,
+                    textStyle: TextStyles.labelMd.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    onTap: () => controller.setHarmonyMix(HarmonyMix.off),
+                  )
+                : PillButton(
+                    label: controller.withBacking ? 'chords on' : 'chords off',
+                    icon: controller.withBacking
+                        ? Icons.piano_rounded
+                        : Icons.piano_off_rounded,
+                    tone: controller.withBacking
+                        ? PillTone.soft
+                        : PillTone.quiet,
+                    height: 48,
+                    expand: true,
+                    textStyle: TextStyles.labelMd.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    onTap: controller.toggleBacking,
+                  ),
+          ),
+        ],
+      ),
+    );
+    if (!desktop) return row;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: row,
+      ),
     );
   }
 
   void _showChord(BuildContext context, int index) {
     controller.playChord(index);
-    showModalBottomSheet<void>(
-      context: context,
-      constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
-      builder: (context) => _ChordSheet(controller: controller, index: index),
+    _present(
+      context,
+      (context) => _ChordSheet(controller: controller, index: index),
     );
   }
 
   void _showGridSheet(BuildContext context) {
+    _present(context, (context) => _GridSheet(controller: controller));
+  }
+
+  /// A bottom sheet on a phone; a centered dialog on desktop, where a
+  /// sheet rising from the bottom of a big window reads as out of place.
+  void _present(BuildContext context, WidgetBuilder builder) {
+    if (useDesktopLayout(context)) {
+      showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          backgroundColor: Palette.canvas,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Shape.large),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
+            child: SingleChildScrollView(child: builder(context)),
+          ),
+        ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       constraints: const BoxConstraints(maxWidth: Layout.maxContentWidth),
-      builder: (context) => _GridSheet(controller: controller),
+      builder: builder,
     );
   }
 }
@@ -518,6 +669,54 @@ class _ProgressionCardsState extends State<_ProgressionCards> {
               ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// Desktop: Safe / Colourful / Bold stacked, all in view at once. Click a
+/// card to hear it under the take; click a chord for its "why".
+class _ProgressionList extends StatelessWidget {
+  const _ProgressionList({required this.controller, required this.onChordTap});
+
+  final SessionController controller;
+  final void Function(int index) onChordTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final progressions = controller.suggestions!.progressions;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < progressions.length; i++) ...[
+          if (i > 0) const SizedBox(height: Space.sm),
+          Pressable(
+            pressedScale: 0.99,
+            semanticLabel:
+                'Use the ${progressions[i].title} progression: ${progressions[i].character}',
+            onTap: () {
+              if (i != controller.selectedProgression) {
+                controller.selectProgression(i);
+              }
+            },
+            child: SizedBox(
+              height: 116,
+              child: _ProgressionCard(
+                progression: progressions[i],
+                selected: i == controller.selectedProgression,
+                activeChord: i == controller.selectedProgression
+                    ? controller.activeChord
+                    : null,
+                onChordTap: (c) {
+                  if (i != controller.selectedProgression) {
+                    controller.selectProgression(i);
+                  }
+                  onChordTap(c);
+                },
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

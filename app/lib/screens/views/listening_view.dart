@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../layout.dart';
 import '../../session/scene.dart';
 import '../../session/session_controller.dart';
 import '../../theme.dart';
@@ -18,6 +19,17 @@ class ListeningView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!useDesktopLayout(context)) return _content(context);
+    // A wide window: keep the stream a readable width, centred.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 960),
+        child: _content(context),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context) {
     final scene = controller.scene;
     final analyzing = scene.phase == Phase.analyzing;
     final timeStyle = TextStyles.labelSm.copyWith(

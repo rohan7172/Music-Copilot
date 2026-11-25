@@ -395,6 +395,46 @@ version's pulses read as too big and too mechanically on/off):
   warm-up request) instead of per-request — a general web-server pattern
   for anything expensive to initialize, not specific to ML
 
+## The desktop app runs its own backend (`services/local_backend/`, `backend/serve.py`)
+
+- Spawning a child process — `Process.start` (from `dart:io`) runs
+  `python serve.py` from the app, with its stdout/stderr read line by
+  line as streams. Only desktop builds can do this; phones can't run
+  Python, and a browser can't start processes at all
+- Conditional imports — `import 'launcher_stub.dart' if (dart.library.io)
+  'launcher_io.dart'` picks the real launcher where `dart:io` exists and a
+  do-nothing stub on the web, so one codebase compiles everywhere
+- Health-check polling — the app treats the backend as up only once
+  `GET /health` answers, because the server spends seconds loading the
+  model after the process starts. If one is already answering (e.g. from
+  `./dev.sh`), the app uses it instead of starting a second
+- Tying a child's lifetime to its parent — `serve.py --exit-with-stdin`
+  watches the pipe the app holds open to its stdin; when the app quits,
+  or crashes and the OS closes the pipe, it reads end-of-file and stops
+  the server. `AppLifecycleListener.onExitRequested` handles the polite
+  case of the app quitting normally
+- The macOS App Sandbox — a sandboxed Mac app can't run other programs or
+  read files outside its own container, so the macOS entitlements turn
+  the sandbox off for this (locally built, not App Store) app
+- `ChangeNotifier` for a background service — `LocalBackend` reports
+  checking / setting up / starting / ready / failed, and the sidebar and
+  error screen rebuild from it with `ListenableBuilder`
+
+## One app, two interfaces (`layout.dart`, `screens/desktop/`)
+
+- Responsive vs adaptive layout — `MediaQuery.sizeOf(context)` gives the
+  window size; `useDesktopLayout` combines it with the platform
+  (`defaultTargetPlatform`, `kIsWeb`) so a desktop window gets a sidebar
+  and side-by-side panels while phones (and narrow windows) keep the
+  single phone-width column. The same `SessionController` drives both:
+  only the widgets differ
+- Keyboard shortcuts — `CallbackShortcuts` maps key combinations
+  (`SingleActivator`) to functions; `Focus(autofocus: true)` makes sure
+  the screen receives key presses in the first place
+- Dialogs vs bottom sheets — `showDialog` on desktop, where a sheet rising
+  from the bottom of a big window feels out of place;
+  `showModalBottomSheet` on phones, where it's within thumb reach
+
 ## Note recognition: an actual ML model (Basic Pitch)
 
 - What "audio-to-MIDI transcription" means: turning a raw waveform into

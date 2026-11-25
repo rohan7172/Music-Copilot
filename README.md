@@ -92,6 +92,41 @@ physical device needs your machine's LAN IP instead:
 flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000
 ```
 
+### Desktop app
+
+The desktop app starts the backend itself, so there's nothing else to run:
+
+```bash
+cd app
+flutter run -d macos   # or -d windows / -d linux
+```
+
+On launch it checks `http://127.0.0.1:8000/health`. If a backend is already
+running (say from `./dev.sh`) it uses that one; otherwise it runs
+`backend/serve.py`, which creates `backend/venv` and installs the packages
+the first time (a few minutes; progress shows in the sidebar), then starts
+the server. Quitting the app stops the backend it started — even after a
+crash, since `serve.py` exits once the app's end of its stdin pipe closes.
+
+It finds the `backend` folder by looking upwards from where the app runs,
+which works for any build inside this repository. Elsewhere, set
+`MUSIC_COPILOT_BACKEND=/path/to/backend` (environment variable or
+`--dart-define`). It needs Python 3.11 for the first setup, looked for on
+`PATH` and in Homebrew's folders (`MUSIC_COPILOT_PYTHON` overrides it; on
+Windows it uses `py -3.11`). On macOS the app sandbox is switched off in
+`macos/Runner/*.entitlements`, since a sandboxed app can't run Python.
+
+`serve.py` works on its own too: `python3.11 backend/serve.py`.
+
+On a wide window the desktop app has its own interface: a sidebar with
+record / import / click, this take's key, tempo and length, the analyzer's
+status and the keyboard shortcuts (Space play/pause or stop recording, R
+record, ⌘O / Ctrl+O import, L loop, Esc cancel or start over); the results
+show a large contour with the parts and harmonies beside every chord idea
+at once, and chord details open as dialogs. Narrow windows, and phones,
+keep the mobile layout. A desktop browser wider than 900px gets the desktop
+layout too, which makes it easy to try with `./dev.sh`.
+
 The app also runs in a browser (`flutter run -d chrome`), which is the quickest
 way to iterate on the interface.
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../layout.dart';
 import '../../session/session_controller.dart';
 import '../../theme.dart';
 import '../../widgets/mascot/session_mascot.dart';
@@ -15,6 +16,7 @@ class IdleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (useDesktopLayout(context)) return _desktop(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxHeight < 560;
@@ -61,7 +63,7 @@ class IdleView extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: Space.lg),
-              _ClickToggle(controller: controller),
+              ClickToggle(controller: controller),
               const Spacer(flex: 4),
             ],
           ),
@@ -71,10 +73,69 @@ class IdleView extends StatelessWidget {
   }
 }
 
+extension on IdleView {
+  /// Desktop: the companion large in the middle of the window, a bigger
+  /// invitation, and the keys to press. The click and the import button
+  /// also sit in the sidebar.
+  Widget _desktop(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(Space.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SessionMascot(controller: controller, width: 260),
+            const SizedBox(height: Space.lg),
+            Text(
+              'Play something',
+              style: TextStyles.headlineXl,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Space.sm),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Text(
+                'Sing or hum a tune, or bring a recording, and I’ll suggest '
+                'chords that fit it, and tell you why.',
+                style: TextStyles.bodyLg.copyWith(
+                  color: Palette.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: Space.xl),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RoundAction(
+                  icon: Icons.mic_rounded,
+                  caption: 'Record  ·  R',
+                  semanticLabel: 'Record with the microphone',
+                  tone: PillTone.primary,
+                  size: 76,
+                  onTap: controller.startRecording,
+                ),
+                const SizedBox(width: Space.xl + Space.md),
+                RoundAction(
+                  icon: Icons.upload_file_rounded,
+                  caption: 'Open a file  ·  ${commandShortcut('O')}',
+                  semanticLabel: 'Import an audio file',
+                  size: 76,
+                  onTap: controller.pickAndAnalyzeFile,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// An optional click while recording: with it, the beat grid is exact
 /// instead of guessed. Tap to switch it on; then set its tempo.
-class _ClickToggle extends StatelessWidget {
-  const _ClickToggle({required this.controller});
+class ClickToggle extends StatelessWidget {
+  const ClickToggle({super.key, required this.controller});
 
   final SessionController controller;
 

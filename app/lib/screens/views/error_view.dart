@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../services/local_backend/local_backend.dart';
 import '../../session/session_controller.dart';
 import '../../theme.dart';
 import '../../widgets/mascot/session_mascot.dart';
@@ -44,6 +45,25 @@ class ErrorView extends StatelessWidget {
             ),
           ],
           const SizedBox(height: Space.xl),
+          ListenableBuilder(
+            listenable: LocalBackend.instance,
+            builder: (context, _) {
+              final backend = LocalBackend.instance;
+              if (backend.status != BackendStatus.failed) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(bottom: Space.sm + Space.xs),
+                child: PillButton(
+                  label: 'Restart the analyzer',
+                  icon: Icons.restart_alt_rounded,
+                  tone: PillTone.soft,
+                  height: 52,
+                  onTap: backend.restart,
+                ),
+              );
+            },
+          ),
           PillButton(
             label: 'Record again',
             icon: Icons.mic_rounded,

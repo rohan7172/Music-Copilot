@@ -60,9 +60,15 @@ for the user to interpret from raw theory labels.
   (macOS/Windows/Linux scaffolding already exists from `flutter
   create`; not yet built/packaged for distribution, just not ruled
   out). Screens must therefore respond to window size, not assume a
-  phone viewport: content centers at a phone-proportioned max width
-  (`Layout.maxContentWidth` in `app/lib/theme.dart`) on a wide window
-  rather than stretching edge-to-edge.
+  phone viewport. Phones and narrow windows center a phone-proportioned
+  column (`Layout.maxContentWidth` in `app/lib/theme.dart`); desktop
+  windows at least 900px wide (`useDesktopLayout` in `app/lib/layout.dart`)
+  get a distinct desktop interface — sidebar, side-by-side results panels,
+  dialogs, keyboard shortcuts — over the same `SessionController`.
+- The desktop app starts and stops its own backend
+  (`app/lib/services/local_backend/`, running `backend/serve.py`), so it
+  needs no separate terminal; mobile and web still talk to a backend
+  started separately.
 - Current implementation: live recording + file upload, Basic Pitch
   note recognition, rule-based chord/key detection (major/minor only —
   no modal detection yet), rule-based plain-language explanations. The
