@@ -16,6 +16,7 @@ import '../models/harmony.dart';
 import '../models/note.dart';
 import '../note_range.dart';
 import '../services/api_service.dart';
+import '../services/local_backend/local_backend.dart';
 import 'scene.dart';
 
 /// Something went wrong badly enough to stop the session: shown on its own
@@ -95,14 +96,21 @@ class _AuxTrack {
 /// selection). Anything that moves every frame (the playhead, live loudness,
 /// animation) is read off [clock], which ticks once per frame.
 class SessionController extends ChangeNotifier {
-  SessionController({required TickerProvider vsync, ApiService? api})
-    : _api = api ?? ApiService() {
+  SessionController({
+    required TickerProvider vsync,
+    ApiService? api,
+    LocalBackend? backend,
+  }) : _api = api ?? ApiService(),
+       _backend = backend ?? LocalBackend.instance {
     _ticker = vsync.createTicker(_onTick)..start();
     _watchPlayer();
     scene.introStart = 0;
   }
 
   final ApiService _api;
+
+  /// The desktop app's own backend, which may still be starting up.
+  final LocalBackend _backend;
   final AudioRecorder _recorder = AudioRecorder();
   AudioPlayer _player = AudioPlayer();
   StreamSubscription<bool>? _playingSub;
@@ -432,6 +440,7 @@ class SessionController extends ChangeNotifier {
       scene.waveform = waveform;
       unawaited(_loadPlayback(path));
 
+      await _backend.untilReady();
       final analysis = await _api.analyzeAudio(
         bytes,
         bpm: clicked == null ? null : clickBpm,
@@ -479,6 +488,7 @@ class SessionController extends ChangeNotifier {
       scene.waveform = waveform;
       unawaited(_loadPlayback(picked.playbackSource));
 
+      await _backend.untilReady();
       final analysis = await _api.analyzeAudio(
         picked.bytes,
         filename: picked.filename,
@@ -554,6 +564,16 @@ class SessionController extends ChangeNotifier {
         text.contains('Connection') ||
         text.contains('Failed to fetch');
     if (unreachable) {
+      if (_backend.isManaged) {
+        return SessionError(
+          'Can’t reach the analyzer',
+          _backend.status == BackendStatus.failed
+              ? 'The app couldn’t start its analyzer. Restart it and try '
+                    'again.'
+              : 'The analyzer isn’t answering. Try again in a moment.',
+          _backend.detail ?? text,
+        );
+      }
       return SessionError(
         'Can’t reach the analyzer',
         'The analysis server isn’t answering. Start the backend '

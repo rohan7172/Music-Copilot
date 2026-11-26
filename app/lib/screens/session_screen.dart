@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../layout.dart';
+import '../services/local_backend/local_backend.dart';
 import '../session/scene.dart';
 import '../session/session_controller.dart';
 import '../theme.dart';
 import '../widgets/app_frame.dart';
+import '../widgets/desktop_frame.dart';
 import '../widgets/fluid_field.dart';
 import '../widgets/ui.dart';
+import 'desktop/desktop_sidebar.dart';
 import 'views/error_view.dart';
 import 'views/idle_view.dart';
 import 'views/listening_view.dart';
@@ -37,65 +42,93 @@ class _SessionScreenState extends State<SessionScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (_) => _controller.noteInteraction(),
-      child: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) {
-          final phase = _controller.phase;
-          final busy = phase == Phase.recording || phase == Phase.analyzing;
-          final (key, view) = _viewFor(phase);
-          final upload = busy
-              ? null
-              : PillButton(
-                  key: const ValueKey('upload'),
-                  label: 'upload',
-                  icon: Icons.upload_rounded,
-                  textStyle: TextStyles.labelMd,
-                  onTap: _controller.pickAndAnalyzeFile,
-                );
-          return AppFrame(
-            // The header sits on the fluid, which pours in to form the bar
-            // right after the splash; its contents fade in once the liquid
-            // is under them.
-            header: ValueListenableBuilder<double>(
-              valueListenable: _controller.clock,
-              builder: (context, now, _) => AppHeader(
-                action: upload,
-                reveal: headerContentReveal(_controller.scene, now),
-              ),
-            ),
-            background: (headerBottom) => RepaintBoundary(
-              child: CustomPaint(
-                painter: FluidFieldPainter(
-                  _controller.scene,
-                  _controller.clock,
-                  topInset: headerBottom,
-                ),
-              ),
-            ),
-            child: AnimatedSwitcher(
-              duration: Motion.settle,
-              // Each view fills the canvas and lays itself out from the
-              // top; the default centring left short results floating.
-              layoutBuilder: (current, previous) => Stack(
-                fit: StackFit.expand,
-                children: [...previous, ?current],
-              ),
-              switchInCurve: Motion.curve,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(
-                  scale: Tween(begin: 0.98, end: 1.0).animate(animation),
-                  child: child,
-                ),
-              ),
-              child: KeyedSubtree(key: ValueKey(key), child: view),
-            ),
-          );
-        },
+    final desktop = useDesktopLayout(context);
+    return _KeyboardShortcuts(
+      controller: _controller,
+      child: Listener(
+        onPointerDown: (_) => _controller.noteInteraction(),
+        child: ListenableBuilder(
+          listenable: _controller,
+          builder: (context, _) =>
+              desktop ? _desktop(context) : _mobile(context),
+        ),
       ),
+    );
+  }
+
+  /// Phones (and narrow windows): one phone-width framed column, with the
+  /// upload action in the fluid header.
+  Widget _mobile(BuildContext context) {
+    final phase = _controller.phase;
+    final busy = phase == Phase.recording || phase == Phase.analyzing;
+    final upload = busy
+        ? null
+        : PillButton(
+            key: const ValueKey('upload'),
+            label: 'upload',
+            icon: Icons.upload_rounded,
+            textStyle: TextStyles.labelMd,
+            onTap: _controller.pickAndAnalyzeFile,
+          );
+    return AppFrame(
+      // The header sits on the fluid, which pours in to form the bar
+      // right after the splash; its contents fade in once the liquid
+      // is under them.
+      header: ValueListenableBuilder<double>(
+        valueListenable: _controller.clock,
+        builder: (context, now, _) => AppHeader(
+          action: upload,
+          reveal: headerContentReveal(_controller.scene, now),
+        ),
+      ),
+      background: (headerBottom) => RepaintBoundary(
+        child: CustomPaint(
+          painter: FluidFieldPainter(
+            _controller.scene,
+            _controller.clock,
+            topInset: headerBottom,
+          ),
+        ),
+      ),
+      child: _views(),
+    );
+  }
+
+  /// Desktop: the whole window, a sidebar holding the ways in and the
+  /// take's facts, and the session filling the rest.
+  Widget _desktop(BuildContext context) {
+    return DesktopFrame(
+      sidebar: DesktopSidebar(
+        controller: _controller,
+        backend: LocalBackend.instance,
+      ),
+      background: RepaintBoundary(
+        child: CustomPaint(
+          painter: FluidFieldPainter(_controller.scene, _controller.clock),
+        ),
+      ),
+      child: _views(),
+    );
+  }
+
+  Widget _views() {
+    final (key, view) = _viewFor(_controller.phase);
+    return AnimatedSwitcher(
+      duration: Motion.settle,
+      // Each view fills the canvas and lays itself out from the
+      // top; the default centring left short results floating.
+      layoutBuilder: (current, previous) =>
+          Stack(fit: StackFit.expand, children: [...previous, ?current]),
+      switchInCurve: Motion.curve,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween(begin: 0.98, end: 1.0).animate(animation),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(key: ValueKey(key), child: view),
     );
   }
 
@@ -111,5 +144,69 @@ class _SessionScreenState extends State<SessionScreen>
       Phase.analyzing => ('listening', ListeningView(controller: _controller)),
       Phase.settled => ('results', ResultsView(controller: _controller)),
     };
+  }
+}
+
+/// Keyboard control, mostly for the desktop app: Space plays, pauses or
+/// stops a recording; R records; ⌘/Ctrl+O imports; L loops; Esc cancels a
+/// recording, dismisses an error or starts over.
+class _KeyboardShortcuts extends StatelessWidget {
+  const _KeyboardShortcuts({required this.controller, required this.child});
+
+  final SessionController controller;
+  final Widget child;
+
+  bool get _busy =>
+      controller.phase == Phase.recording ||
+      controller.phase == Phase.analyzing;
+
+  void _space() {
+    switch (controller.phase) {
+      case Phase.recording:
+        controller.stopAndAnalyze();
+      case Phase.settled when controller.error == null:
+        controller.togglePlay();
+      case Phase.idle:
+        _record();
+      default:
+    }
+  }
+
+  void _record() {
+    if (_busy) return;
+    if (controller.error != null) controller.dismissError();
+    if (controller.phase == Phase.idle) controller.startRecording();
+  }
+
+  void _escape() {
+    if (controller.error != null) {
+      controller.dismissError();
+    } else if (controller.phase == Phase.recording) {
+      controller.cancelRecording();
+    } else if (controller.phase == Phase.settled) {
+      controller.newTake();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.space): _space,
+        const SingleActivator(LogicalKeyboardKey.keyR): _record,
+        const SingleActivator(LogicalKeyboardKey.keyL): () {
+          if (controller.phase == Phase.settled) controller.toggleLoop();
+        },
+        const SingleActivator(LogicalKeyboardKey.escape): _escape,
+        SingleActivator(
+          LogicalKeyboardKey.keyO,
+          meta: usesCommandKey,
+          control: !usesCommandKey,
+        ): () {
+          if (!_busy) controller.pickAndAnalyzeFile();
+        },
+      },
+      child: Focus(autofocus: true, child: child),
+    );
   }
 }

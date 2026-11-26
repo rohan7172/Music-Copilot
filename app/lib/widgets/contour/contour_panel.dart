@@ -23,7 +23,11 @@ class ContourPanel extends StatelessWidget {
     this.label = 'vocal contour',
     this.laneLabels,
     this.overlay = const [],
+    this.rollHeight = 200,
   });
+
+  /// Height of the note roll itself; the desktop layout gives it more.
+  final double rollHeight;
 
   /// Named rows (note number → name, lowest note first) instead of pitch
   /// labels: the Drums lens's Kick / Snare / Hi-hat.
@@ -69,7 +73,7 @@ class ContourPanel extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 200,
+            height: rollHeight,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final layout = ContourLayout(
